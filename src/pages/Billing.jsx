@@ -8,6 +8,8 @@ import {
   ReceiptText,
   X,
   HandCoins,
+  Pencil,
+  Ban,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { formatMoney, formatDate, todayISO } from '../utils/format'
@@ -19,23 +21,47 @@ import {
   invoiceBalance,
 } from '../utils/calc'
 import { generateInvoicePDF } from '../utils/pdf'
-import { Modal, PageHeader, StatusBadge, EmptyState } from '../components/ui'
+import { Modal, PageHeader, StatusBadge, EmptyState, ConfirmDialog } from '../components/ui'
 import { nextId } from '../data/mockData'
 
 // ---------------------------------------------------------------------------
 // New-invoice builder
 // ---------------------------------------------------------------------------
-function InvoiceBuilder({ onClose }) {
+function InvoiceBuilder({ onClose, editInvoice }) {
   const { state, dispatch, currency } = useApp()
-  const { products, customers } = state
+  const { products, customers, invoices } = state
+  const isEdit = !!editInvoice
 
-  const [customerId, setCustomerId] = useState(customers[0]?.id || '')
-  const [date, setDate] = useState(todayISO())
-  const [items, setItems] = useState([]) // { productId, name, qty, price, stock }
-  const [discount, setDiscount] = useState(0)
-  const [taxPercent, setTaxPercent] = useState(0)
-  const [status, setStatus] = useState('Paid')
+  // In edit mode, "available stock" for a line = current stock + what this line
+  // already holds (since it would be restored on save).
+  const initialItems = isEdit
+    ? editInvoice.items.map((it) => {
+        const p = products.find((pp) => pp.id === it.productId)
+        return {
+          productId: it.productId,
+          name: it.name,
+          qty: Number(it.qty),
+          price: Number(it.price),
+          prices: p
+            ? { actual: p.sellingPrice, medium: p.priceMedium ?? p.sellingPrice, high: p.priceHigh ?? p.sellingPrice }
+            : { actual: Number(it.price), medium: Number(it.price), high: Number(it.price) },
+          tier: 'actual',
+          stock: (p ? p.quantity : 0) + Number(it.qty),
+        }
+      })
+    : []
+
+  const [customerId, setCustomerId] = useState(editInvoice?.customerId || customers[0]?.id || '')
+  const [date, setDate] = useState(editInvoice?.date || todayISO())
+  const [salesperson, setSalesperson] = useState(editInvoice?.salesperson || '')
+  const [items, setItems] = useState(initialItems)
+  const [discount, setDiscount] = useState(editInvoice?.discount || 0)
+  const [taxPercent, setTaxPercent] = useState(editInvoice?.taxPercent || 0)
+  const [status, setStatus] = useState(editInvoice?.status || 'Paid')
   const [productSearch, setProductSearch] = useState('')
+
+  // Suggest previously-used salesperson names.
+  const salespeople = [...new Set(invoices.map((i) => i.salesperson).filter(Boolean))]
 
   // Products matching the search box, excluding ones already added.
   const matches = useMemo(() => {
@@ -53,13 +79,31 @@ function InvoiceBuilder({ onClose }) {
   const addItem = (p) => {
     setItems((cur) => [
       ...cur,
-      { productId: p.id, name: p.name, qty: 1, price: p.sellingPrice, stock: p.quantity },
+      {
+        productId: p.id,
+        name: p.name,
+        qty: 1,
+        price: p.sellingPrice,
+        prices: {
+          actual: p.sellingPrice,
+          medium: p.priceMedium ?? p.sellingPrice,
+          high: p.priceHigh ?? p.sellingPrice,
+        },
+        tier: 'actual',
+        stock: p.quantity,
+      },
     ])
     setProductSearch('')
   }
 
   const updateItem = (idx, patch) =>
     setItems((cur) => cur.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+
+  // Switching tier sets the price to that tier's value (still editable after).
+  const changeTier = (idx, tier) =>
+    setItems((cur) =>
+      cur.map((it, i) => (i === idx ? { ...it, tier, price: it.prices?.[tier] ?? it.price } : it)),
+    )
   const removeItem = (idx) => setItems((cur) => cur.filter((_, i) => i !== idx))
 
   // Draft invoice object used for live totals.
@@ -72,12 +116,21 @@ function InvoiceBuilder({ onClose }) {
 
   const save = () => {
     if (!canSave) return
-    // Amount paid depends on chosen status.
-    const amountPaid = status === 'Paid' ? total : status === 'Partial' ? total / 2 : 0
+    // Amount paid depends on chosen status. On edit, keep any existing payment.
+    const amountPaid = isEdit
+      ? status === 'Paid'
+        ? total
+        : Math.min(Number(editInvoice.amountPaid) || 0, total)
+      : status === 'Paid'
+        ? total
+        : status === 'Partial'
+          ? total / 2
+          : 0
     const invoice = {
-      id: nextId('INV'),
+      id: isEdit ? editInvoice.id : nextId('INV'),
       customerId,
       date,
+      salesperson: salesperson.trim(),
       items: items.map(({ productId, name, qty, price }) => ({
         productId,
         name,
@@ -89,8 +142,9 @@ function InvoiceBuilder({ onClose }) {
       status,
       amountPaid: Math.round(amountPaid),
     }
-    dispatch({ type: 'ADD_INVOICE', invoice })
-    onClose(invoice)
+    if (isEdit) dispatch({ type: 'UPDATE_INVOICE', invoice, prev: editInvoice })
+    else dispatch({ type: 'ADD_INVOICE', invoice })
+    onClose(isEdit ? null : invoice) // auto-download PDF only for new invoices
   }
 
   return (
@@ -110,6 +164,21 @@ function InvoiceBuilder({ onClose }) {
         <div>
           <label className="label">Date</label>
           <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">Salesperson</label>
+          <input
+            className="input"
+            list="salespeople"
+            value={salesperson}
+            onChange={(e) => setSalesperson(e.target.value)}
+            placeholder="Who is making this invoice?"
+          />
+          <datalist id="salespeople">
+            {salespeople.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
       </div>
 
@@ -155,6 +224,7 @@ function InvoiceBuilder({ onClose }) {
             <tr>
               <th className="px-3 py-2 font-semibold">Item</th>
               <th className="px-3 py-2 text-center font-semibold">Qty</th>
+              <th className="px-3 py-2 text-center font-semibold">Tier</th>
               <th className="px-3 py-2 text-right font-semibold">Price</th>
               <th className="px-3 py-2 text-right font-semibold">Total</th>
               <th className="px-3 py-2"></th>
@@ -163,7 +233,7 @@ function InvoiceBuilder({ onClose }) {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-sm text-gray-400">
+                <td colSpan={6} className="px-3 py-6 text-center text-sm text-gray-400">
                   No items yet — search above to add parts.
                 </td>
               </tr>
@@ -188,6 +258,18 @@ function InvoiceBuilder({ onClose }) {
                         value={it.qty}
                         onChange={(e) => updateItem(idx, { qty: e.target.value })}
                       />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <select
+                        className="input !w-24 !py-1"
+                        value={it.tier || 'actual'}
+                        onChange={(e) => changeTier(idx, e.target.value)}
+                        title="Price tier"
+                      >
+                        <option value="actual">Actual</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
                     </td>
                     <td className="px-3 py-2 text-right">
                       <input
@@ -277,7 +359,7 @@ function InvoiceBuilder({ onClose }) {
           Cancel
         </button>
         <button onClick={save} disabled={!canSave} className="btn-primary">
-          <ReceiptText size={16} /> Create Invoice
+          <ReceiptText size={16} /> {isEdit ? 'Save Changes' : 'Create Invoice'}
         </button>
       </div>
     </div>
@@ -351,10 +433,12 @@ function PaymentModal({ invoice, onClose }) {
 // Billing page
 // ---------------------------------------------------------------------------
 export default function Billing() {
-  const { state, currency } = useApp()
+  const { state, dispatch, currency, companyName, settings } = useApp()
   const { invoices, customers } = state
 
   const [showBuilder, setShowBuilder] = useState(false)
+  const [editInv, setEditInv] = useState(null)
+  const [voidInv, setVoidInv] = useState(null)
   const [payFor, setPayFor] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -423,6 +507,9 @@ export default function Billing() {
                     <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">{inv.id}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                       {customerName(inv.customerId)}
+                      {inv.salesperson && (
+                        <p className="text-xs text-gray-400">By: {inv.salesperson}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatDate(inv.date)}</td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">
@@ -453,12 +540,26 @@ export default function Billing() {
                         )}
                         <button
                           onClick={() =>
-                            generateInvoicePDF(inv, customerById(inv.customerId), currency)
+                            generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName, settings || {})
                           }
                           className="btn-ghost !p-2"
                           title="Download PDF"
                         >
                           <FileDown size={16} />
+                        </button>
+                        <button
+                          onClick={() => setEditInv(inv)}
+                          className="btn-ghost !p-2"
+                          title="Edit invoice"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => setVoidInv(inv)}
+                          className="btn-ghost !p-2 text-brand-600"
+                          title="Void / cancel invoice"
+                        >
+                          <Ban size={16} />
                         </button>
                       </div>
                     </td>
@@ -473,14 +574,24 @@ export default function Billing() {
         )}
       </div>
 
-      {/* New invoice modal */}
-      <Modal open={showBuilder} onClose={() => setShowBuilder(false)} title="New Invoice" size="xl">
-        {showBuilder && (
+      {/* New / edit invoice modal */}
+      <Modal
+        open={showBuilder || !!editInv}
+        onClose={() => {
+          setShowBuilder(false)
+          setEditInv(null)
+        }}
+        title={editInv ? `Edit Invoice ${editInv.id}` : 'New Invoice'}
+        size="xl"
+      >
+        {(showBuilder || editInv) && (
           <InvoiceBuilder
+            editInvoice={editInv}
             onClose={(inv) => {
               setShowBuilder(false)
+              setEditInv(null)
               // Offer immediate PDF download of the freshly created invoice.
-              if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency)
+              if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName, settings || {})
             }}
           />
         )}
@@ -490,6 +601,20 @@ export default function Billing() {
       <Modal open={!!payFor} onClose={() => setPayFor(null)} title="Record Payment" size="sm">
         {payFor && <PaymentModal invoice={payFor} onClose={() => setPayFor(null)} />}
       </Modal>
+
+      {/* Void confirm */}
+      <ConfirmDialog
+        open={!!voidInv}
+        danger
+        title={`Void invoice ${voidInv?.id}?`}
+        message="The invoice will be removed and its items returned to stock. This cannot be undone."
+        confirmLabel="Void Invoice"
+        onCancel={() => setVoidInv(null)}
+        onConfirm={() => {
+          dispatch({ type: 'VOID_INVOICE', id: voidInv.id })
+          setVoidInv(null)
+        }}
+      />
     </div>
   )
 }

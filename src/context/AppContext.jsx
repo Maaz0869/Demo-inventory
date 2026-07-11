@@ -1,31 +1,38 @@
 // -----------------------------------------------------------------------------
-// Central in-memory store for the whole app.
-// Uses useReducer so every mutation (products, invoices, payments, expenses)
-// flows through a single, predictable place. Data lives only for the session.
+// Central store for the whole app, backed by Supabase.
+//
+// The reducer still runs locally and holds ALL business logic (stock decrements,
+// FIFO payment allocation, etc.) exactly as before. On top of it, every dispatch
+// is diffed against the previous state and the changed/removed rows are synced to
+// Supabase. Because the reducer is immutable (only changed rows get a new object
+// reference), the diff is a cheap reference comparison per table.
 // -----------------------------------------------------------------------------
-import { createContext, useContext, useReducer, useEffect, useState } from 'react'
-import {
-  seedProducts,
-  seedCustomers,
-  seedInvoices,
-  seedPayments,
-  seedExpenses,
-  nextId,
-} from '../data/mockData'
+import { createContext, useContext, useReducer, useEffect, useState, useRef } from 'react'
+import { nextId } from '../data/mockData'
 import { invoiceTotal } from '../utils/calc'
+import { supabase } from '../lib/supabase'
+import { useAuth } from './AuthContext'
+import { useToast } from './ToastContext'
 
 const AppContext = createContext(null)
 
+// Tables that mirror slices of state. Order matters for nothing except iteration.
+const TABLES = ['products', 'customers', 'invoices', 'payments', 'expenses']
+
 const initialState = {
-  products: seedProducts,
-  customers: seedCustomers,
-  invoices: seedInvoices,
-  payments: seedPayments,
-  expenses: seedExpenses,
+  products: [],
+  customers: [],
+  invoices: [],
+  payments: [],
+  expenses: [],
 }
 
 function reducer(state, action) {
   switch (action.type) {
+    // Load everything fetched from Supabase in one shot.
+    case 'HYDRATE':
+      return { ...state, ...action.data }
+
     // ---------------- Products ----------------
     case 'ADD_PRODUCT':
       return { ...state, products: [{ ...action.product, id: nextId('P') }, ...state.products] }
@@ -64,6 +71,36 @@ function reducer(state, action) {
       return { ...state, invoices: [invoice, ...state.invoices], products }
     }
 
+    // Edit an existing invoice: restore the old items' stock, deduct the new
+    // items' stock (net delta), and replace the invoice.
+    case 'UPDATE_INVOICE': {
+      const { invoice: next, prev } = action
+      const delta = {} // productId -> net stock change
+      ;(prev.items || []).forEach((it) => {
+        delta[it.productId] = (delta[it.productId] || 0) + Number(it.qty || 0)
+      })
+      ;(next.items || []).forEach((it) => {
+        delta[it.productId] = (delta[it.productId] || 0) - Number(it.qty || 0)
+      })
+      const products = state.products.map((p) =>
+        delta[p.id] ? { ...p, quantity: Math.max(0, p.quantity + delta[p.id]) } : p,
+      )
+      const invoices = state.invoices.map((i) => (i.id === next.id ? next : i))
+      return { ...state, invoices, products }
+    }
+
+    // Void / cancel an invoice: remove it and add its items' stock back.
+    case 'VOID_INVOICE': {
+      const inv = state.invoices.find((i) => i.id === action.id)
+      const products = inv
+        ? state.products.map((p) => {
+            const line = inv.items.find((it) => it.productId === p.id)
+            return line ? { ...p, quantity: p.quantity + Number(line.qty || 0) } : p
+          })
+        : state.products
+      return { ...state, invoices: state.invoices.filter((i) => i.id !== action.id), products }
+    }
+
     // Record a payment against an invoice: bumps amountPaid and re-derives status.
     case 'PAY_INVOICE': {
       const invoices = state.invoices.map((inv) => {
@@ -89,9 +126,6 @@ function reducer(state, action) {
     // oldest outstanding invoices first (FIFO) so balances stay consistent.
     case 'ADD_PAYMENT': {
       let remaining = Number(action.payment.amount) || 0
-      const custInvoices = state.invoices
-        .filter((inv) => inv.customerId === action.payment.customerId)
-        .sort((a, b) => new Date(a.date) - new Date(b.date))
 
       const invoices = state.invoices.map((inv) => {
         if (inv.customerId !== action.payment.customerId || remaining <= 0) return inv
@@ -121,11 +155,156 @@ function reducer(state, action) {
   }
 }
 
-export function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+// Sync the difference between two states to Supabase, table by table.
+// Changed/new rows (new object reference) are upserted; removed ids are deleted.
+// Every written row is stamped with the current companyId so data stays isolated.
+async function persistDiff(prev, next, companyId, onError) {
+  for (const table of TABLES) {
+    const prevRows = prev[table] || []
+    const nextRows = next[table] || []
 
-  // Currency (PKR / SAR) — persisted so a reload keeps the shop's choice.
-  const [currency, setCurrency] = useState(() => localStorage.getItem('currency') || 'PKR')
+    // New or modified rows: reducer only creates fresh references for changes.
+    const changed = nextRows
+      .filter((row) => !prevRows.includes(row))
+      .map((row) => ({ ...row, companyId }))
+    // Rows that no longer exist.
+    const nextIds = new Set(nextRows.map((r) => r.id))
+    const removedIds = prevRows.filter((r) => !nextIds.has(r.id)).map((r) => r.id)
+
+    try {
+      if (changed.length) {
+        const { error } = await supabase.from(table).upsert(changed, { onConflict: 'id' })
+        if (error) throw error
+      }
+      if (removedIds.length) {
+        const { error } = await supabase.from(table).delete().in('id', removedIds)
+        if (error) throw error
+      }
+    } catch (err) {
+      console.error(`Supabase sync failed for "${table}":`, err.message || err)
+      onError?.()
+    }
+  }
+}
+
+export function AppProvider({ children }) {
+  const { currentUser, viewingCompany } = useAuth()
+  const toast = useToast()
+  // A company account works on its own data; the admin works on whichever
+  // company it is currently managing (viewingCompany).
+  const companyId =
+    currentUser?.role === 'admin' ? viewingCompany?.id || null : currentUser?.companyId || null
+  // Display name of the company whose data is active (for invoice branding etc.)
+  const companyName =
+    currentUser?.role === 'admin' ? viewingCompany?.name || '' : currentUser?.name || ''
+
+  const [state, baseDispatch] = useReducer(reducer, initialState)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  // Always read the freshest state / company inside the dispatch wrapper.
+  const stateRef = useRef(state)
+  stateRef.current = state
+  const companyRef = useRef(companyId)
+  companyRef.current = companyId
+
+  // Load this company's data. Re-runs whenever the active company changes
+  // (login / logout / switching accounts). The admin has no company → no data.
+  useEffect(() => {
+    let cancelled = false
+
+    if (!companyId) {
+      baseDispatch({ type: 'HYDRATE', data: initialState })
+      setLoading(false)
+      setError(null)
+      return
+    }
+
+    setLoading(true)
+    ;(async () => {
+      try {
+        const byCompany = (t, order, asc = true) =>
+          supabase.from(t).select('*').eq('companyId', companyId).order(order, { ascending: asc })
+        const [products, customers, invoices, payments, expenses] = await Promise.all([
+          byCompany('products', 'id'),
+          byCompany('customers', 'id'),
+          byCompany('invoices', 'date', false),
+          byCompany('payments', 'date', false),
+          byCompany('expenses', 'date', false),
+        ])
+        const first = [products, customers, invoices, payments, expenses].find((r) => r.error)
+        if (first?.error) throw first.error
+        if (cancelled) return
+        baseDispatch({
+          type: 'HYDRATE',
+          data: {
+            products: products.data || [],
+            customers: customers.data || [],
+            invoices: invoices.data || [],
+            payments: payments.data || [],
+            expenses: expenses.data || [],
+          },
+        })
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Failed to load data from Supabase')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  // Per-company invoice settings (bank details, terms, address, etc.).
+  const [settings, setSettings] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    if (!companyId) {
+      setSettings(null)
+      return
+    }
+    ;(async () => {
+      const { data } = await supabase
+        .from('company_settings')
+        .select('*')
+        .eq('companyId', companyId)
+        .maybeSingle()
+      if (!cancelled) setSettings(data || {})
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  const saveSettings = async (patch) => {
+    const cid = companyRef.current
+    if (!cid) return { ok: false }
+    const row = { companyId: cid, ...settings, ...patch }
+    const { error } = await supabase.from('company_settings').upsert(row, { onConflict: 'companyId' })
+    if (error) {
+      toast('Could not save settings', 'error')
+      return { ok: false }
+    }
+    setSettings(row)
+    toast('Invoice settings saved', 'success')
+    return { ok: true }
+  }
+
+  // Wrapped dispatch: apply locally (optimistic) then persist the diff.
+  const dispatch = (action) => {
+    const prev = stateRef.current
+    const next = reducer(prev, action)
+    baseDispatch(action)
+    if (action.type !== 'HYDRATE') {
+      persistDiff(prev, next, companyRef.current, () =>
+        toast('Could not save to server — check your connection', 'error'),
+      )
+    }
+  }
+
+  // Currency — the app is used in South Africa, so this is always ZAR.
+  const [currency, setCurrency] = useState('ZAR')
   useEffect(() => {
     localStorage.setItem('currency', currency)
   }, [currency])
@@ -142,7 +321,19 @@ export function AppProvider({ children }) {
   }, [theme])
   const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
 
-  const value = { state, dispatch, currency, setCurrency, theme, toggleTheme }
+  const value = {
+    state,
+    dispatch,
+    loading,
+    error,
+    currency,
+    setCurrency,
+    companyName,
+    settings,
+    saveSettings,
+    theme,
+    toggleTheme,
+  }
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 

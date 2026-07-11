@@ -10,7 +10,25 @@ import {
   Phone,
   MapPin,
   Pencil,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
+
+// Small pill showing whether a customer has settled their account.
+function AccountStatus({ balance }) {
+  if (balance > 0) {
+    return (
+      <span className="badge bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+        <AlertCircle size={12} /> Pending
+      </span>
+    )
+  }
+  return (
+    <span className="badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+      <CheckCircle2 size={12} /> Settled
+    </span>
+  )
+}
 import { useApp } from '../context/AppContext'
 import { formatMoney, formatDate, todayISO } from '../utils/format'
 import { invoiceTotal, customerBalance } from '../utils/calc'
@@ -116,6 +134,12 @@ function CustomerStatement({ customer, onBack }) {
             <p className={`text-2xl font-extrabold ${balance > 0 ? 'text-brand-600' : 'text-emerald-600'}`}>
               {formatMoney(balance, currency)}
             </p>
+            <div className="mt-1 flex justify-end">
+              <AccountStatus balance={balance} />
+            </div>
+            {balance > 0 && (
+              <p className="mt-1 text-xs text-gray-400">Not paid yet — {formatMoney(balance, currency)} due</p>
+            )}
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -249,16 +273,36 @@ export default function Customers() {
   const { customers, invoices, payments } = state
 
   const [search, setSearch] = useState('')
+  const [pendingOnly, setPendingOnly] = useState(false)
   const [selected, setSelected] = useState(null) // customer id
   const [modal, setModal] = useState(null) // { mode, customer }
 
   const selectedCustomer = customers.find((c) => c.id === selected)
 
-  const filtered = customers.filter((c) => {
-    const q = search.trim().toLowerCase()
-    if (!q) return true
-    return c.name.toLowerCase().includes(q) || (c.phone || '').toLowerCase().includes(q)
-  })
+  // Attach each customer's outstanding balance + invoice count.
+  const withBalance = useMemo(
+    () =>
+      customers.map((c) => ({
+        ...c,
+        balance: customerBalance(c.id, invoices, payments),
+        invCount: invoices.filter((i) => i.customerId === c.id).length,
+      })),
+    [customers, invoices, payments],
+  )
+
+  // Summary: how many still owe, and the total outstanding.
+  const owing = withBalance.filter((c) => c.balance > 0)
+  const totalOutstanding = owing.reduce((s, c) => s + c.balance, 0)
+
+  const filtered = withBalance
+    .filter((c) => {
+      if (pendingOnly && c.balance <= 0) return false
+      const q = search.trim().toLowerCase()
+      if (!q) return true
+      return c.name.toLowerCase().includes(q) || (c.phone || '').toLowerCase().includes(q)
+    })
+    // Show customers who owe first, largest balance on top.
+    .sort((a, b) => b.balance - a.balance)
 
   const save = (customer) => {
     if (modal.mode === 'add') dispatch({ type: 'ADD_CUSTOMER', customer })
@@ -278,8 +322,26 @@ export default function Customers() {
         </button>
       </PageHeader>
 
-      <div className="card mb-4 p-4">
-        <div className="relative">
+      {/* Summary */}
+      <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="card p-4">
+          <p className="text-xs font-semibold uppercase text-gray-400">Customers</p>
+          <p className="mt-1 text-xl font-extrabold text-gray-900 dark:text-white">{customers.length}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-semibold uppercase text-gray-400">Pending (owe money)</p>
+          <p className="mt-1 text-xl font-extrabold text-red-600">{owing.length}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-semibold uppercase text-gray-400">Total Outstanding</p>
+          <p className="mt-1 text-xl font-extrabold text-brand-600">
+            {formatMoney(totalOutstanding, currency)}
+          </p>
+        </div>
+      </div>
+
+      <div className="card mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             className="input pl-9"
@@ -288,15 +350,28 @@ export default function Customers() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm font-semibold text-gray-600 dark:text-gray-300">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded accent-brand-600"
+            checked={pendingOnly}
+            onChange={(e) => setPendingOnly(e.target.checked)}
+          />
+          Only pending (unpaid)
+        </label>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {filtered.map((c) => {
-          const balance = customerBalance(c.id, invoices, payments)
-          const invCount = invoices.filter((i) => i.customerId === c.id).length
+          const owes = c.balance > 0
           return (
-            <div key={c.id} className="card p-5 transition-shadow hover:shadow-lg">
-              <div className="flex items-start justify-between">
+            <div
+              key={c.id}
+              className={`card p-5 transition-shadow hover:shadow-lg ${
+                owes ? 'ring-1 ring-red-200 dark:ring-red-900/40' : ''
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-lg font-bold text-gray-900 dark:text-white">{c.name}</p>
                   {c.phone && c.phone !== '—' && (
@@ -305,22 +380,29 @@ export default function Customers() {
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={() => setModal({ mode: 'edit', customer: c })}
-                  className="btn-ghost !p-2"
-                  title="Edit"
-                >
-                  <Pencil size={15} />
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <AccountStatus balance={c.balance} />
+                  <button
+                    onClick={() => setModal({ mode: 'edit', customer: c })}
+                    className="btn-ghost !p-2"
+                    title="Edit"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 flex items-end justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Balance</p>
-                  <p className={`text-xl font-extrabold ${balance > 0 ? 'text-brand-600' : 'text-emerald-600'}`}>
-                    {formatMoney(balance, currency)}
+                  <p className="text-xs font-semibold uppercase text-gray-400">
+                    {owes ? 'Balance Due' : 'Balance'}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-400">{invCount} invoice(s)</p>
+                  <p className={`text-xl font-extrabold ${owes ? 'text-brand-600' : 'text-emerald-600'}`}>
+                    {formatMoney(c.balance, currency)}
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {owes ? 'Not paid yet' : 'All settled'} • {c.invCount} invoice(s)
+                  </p>
                 </div>
                 <button onClick={() => setSelected(c.id)} className="btn-secondary !py-1.5 text-sm">
                   View Ledger

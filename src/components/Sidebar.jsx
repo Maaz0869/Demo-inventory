@@ -6,20 +6,36 @@ import {
   Users,
   Wallet,
   BarChart3,
+  UserCog,
+  Gauge,
+  Settings as SettingsIcon,
   Wrench,
   X,
 } from 'lucide-react'
 
 const NAV = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'inventory', label: 'Inventory', icon: Package },
-  { key: 'billing', label: 'Billing', icon: ReceiptText },
-  { key: 'customers', label: 'Customers', icon: Users },
-  { key: 'expenses', label: 'Expenses', icon: Wallet },
-  { key: 'reports', label: 'Reports', icon: BarChart3 },
+  // Platform admin home.
+  { key: 'overview', label: 'Overview', icon: Gauge, adminOnly: true },
+  // Company (tenant) screens — hidden from the platform admin.
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, companyOnly: true },
+  { key: 'inventory', label: 'Inventory', icon: Package, companyOnly: true },
+  { key: 'billing', label: 'Billing', icon: ReceiptText, companyOnly: true },
+  { key: 'customers', label: 'Customers', icon: Users, companyOnly: true },
+  { key: 'expenses', label: 'Expenses', icon: Wallet, companyOnly: true },
+  { key: 'reports', label: 'Reports', icon: BarChart3, companyOnly: true },
+  { key: 'settings', label: 'Settings', icon: SettingsIcon, companyOnly: true },
+  // Platform admin only.
+  { key: 'users', label: 'Companies', icon: UserCog, adminOnly: true },
 ]
 
-export default function Sidebar({ active, onNavigate, open, onClose }) {
+export default function Sidebar({ active, onNavigate, open, onClose, isAdmin, viewing }) {
+  const nav = NAV.filter((item) => {
+    // Companies link: admin only. Operational screens: company users always,
+    // and the admin too while it is managing a company.
+    if (item.adminOnly) return isAdmin
+    if (item.companyOnly) return !isAdmin || viewing
+    return true
+  })
   return (
     <>
       {/* Mobile backdrop */}
@@ -50,7 +66,7 @@ export default function Sidebar({ active, onNavigate, open, onClose }) {
 
         {/* Nav links */}
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {NAV.map(({ key, label, icon: Icon }) => {
+          {nav.map(({ key, label, icon: Icon }) => {
             const isActive = active === key
             return (
               <button

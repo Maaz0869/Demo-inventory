@@ -25,9 +25,17 @@ export const EXPENSE_CATEGORIES = [
   'Miscellaneous',
 ]
 
-// Simple id helper (session-unique).
-let _id = 1000
-export const nextId = (prefix) => `${prefix}-${++_id}`
+// Globally-unique id helper. Combines a base-36 timestamp with random chars so
+// ids never collide across reloads, sessions or companies (all rows share one
+// primary-key space in the database). A per-call counter guards against two ids
+// generated in the same millisecond.
+let _seq = 0
+export const nextId = (prefix) => {
+  const t = Date.now().toString(36)
+  const r = Math.random().toString(36).slice(2, 6)
+  const s = (_seq++).toString(36)
+  return `${prefix}-${t}${r}${s}`.toUpperCase()
+}
 
 // ---------------------------------------------------------------------------
 // Products (car parts)
@@ -136,6 +144,5 @@ export const seedExpenses = [
 ]
 
 export const CURRENCIES = [
-  { code: 'PKR', label: 'PKR — Pakistani Rupee', symbol: 'Rs' },
-  { code: 'SAR', label: 'SAR — Saudi Riyal', symbol: 'SAR' },
+  { code: 'ZAR', label: 'ZAR — South African Rand', symbol: 'R' },
 ]

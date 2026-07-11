@@ -1,65 +1,74 @@
-# AutoParts Pro — Inventory & Billing Management System
+# AutoParts Pro — Inventory & Billing (Multi-company SaaS)
 
-A **frontend-only** Inventory & Billing Management System for a car parts shop,
-built with **React + Vite + Tailwind CSS**. There is no backend — all data lives
-in-memory (React state) for the session and is seeded with realistic mock data.
+A multi-company Inventory & Billing system for car-parts businesses, built with
+**React + Vite + Tailwind CSS** and backed by **Supabase** (Postgres + Auth +
+row-level security). Currency: **South African Rand (R / ZAR)**.
 
-Designed for a Pakistan / Saudi retail context: English UI, configurable
-**PKR / SAR** currency, and a "khata / udhaar" (credit ledger) workflow.
+Each company is an isolated tenant with its own inventory, customers, invoices,
+expenses and settings. A platform **admin** provisions and manages company
+accounts; each company only ever sees its own data (enforced at the database
+level by RLS).
+
+## Roles
+
+- **Admin** — platform owner. Manages companies (create / edit / block /
+  unblock / delete), can view & edit any company's data, and sees a
+  platform-wide overview.
+- **Company** — a tenant. Uses Dashboard, Inventory, Billing, Customers,
+  Expenses, Reports and Settings for its own data only.
 
 ## Features
 
-| Module | What it does |
-| --- | --- |
-| **Dashboard** | KPI cards (total products, low-stock items, today's sales, total receivables), recent transactions and low-stock alerts. |
-| **Inventory** | Add / edit / delete car parts, searchable + filterable table, low-stock rows highlighted, category filter, Excel export. |
-| **Billing** | Build invoices with live product search, multiple line items, auto qty × price, discount, tax and grand total. Stock auto-decreases on sale. Mark **Paid / Partial / Credit (Udhaar)**. Download a clean **PDF** invoice. Record payments against a balance. |
-| **Customers (Khata)** | Customer directory with running balances. Per-customer ledger (invoices + payments with a running balance). Record account payments (applied oldest-first). Export a customer **statement to Excel**. |
-| **Expenses** | Log daily expenses, filter by date range / category, running total, Excel export. |
-| **Reports** | Sales, expense and receivables summaries + inventory valuation, each exportable to **Excel**. |
+- **Inventory** — parts with 3 selling tiers (Actual / Medium / High), cost,
+  stock, low-stock alerts, restock ("Add Stock"), Excel export.
+- **Billing** — invoices with per-line price tier, salesperson, discount/tax,
+  Paid/Partial/Credit status, edit & void (stock adjusts), branded **PDF**.
+- **Customers** — ledger with running balance, Settled / Pending status,
+  record payments (oldest-first), Excel statement.
+- **Expenses**, **Reports** (date-range filter, per-report + combined Excel),
+  **Dashboard** (KPIs + charts), **Settings** (invoice address / bank / terms).
 
 ## Tech
 
-- **React 18** functional components + hooks (`useState`, `useReducer`, `useMemo`)
-- Central store via `useReducer` in [`src/context/AppContext.jsx`](src/context/AppContext.jsx)
-- **Tailwind CSS** (red / black auto-parts theme), fully responsive
-- **Light / dark mode** toggle (persisted)
-- **lucide-react** icons
-- **jsPDF** + `jspdf-autotable` for PDF invoices
-- **SheetJS (xlsx)** for Excel exports
+- React 18 + Vite + Tailwind CSS (light/dark), lucide-react icons
+- Supabase JS (`@supabase/supabase-js`) — Auth + Postgres + RLS
+- jsPDF + jspdf-autotable (invoices), SheetJS/xlsx (exports)
+
+## Environment variables
+
+Both are safe to expose in the frontend (publishable/anon key; access is
+governed by RLS). Copy `.env.example` to `.env`:
+
+```
+VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_xxx
+```
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev      # start dev server (http://localhost:5173)
-npm run build    # production build
+npm run dev      # http://localhost:5173
+npm run build    # production build → dist/
 npm run preview  # preview the production build
 ```
 
-## Project structure
+## Deploy to Vercel
 
-```
-src/
-  main.jsx                 App bootstrap
-  App.jsx                  Shell: sidebar + topbar + active page
-  context/AppContext.jsx   In-memory store (useReducer) + currency/theme
-  data/mockData.js         Seed products, customers, invoices, expenses
-  components/
-    Sidebar.jsx            Navigation
-    ui.jsx                 Modal, StatusBadge, PageHeader, EmptyState
-  pages/
-    Dashboard.jsx
-    Inventory.jsx
-    Billing.jsx            Invoice list + builder + payment
-    Customers.jsx          Directory + ledger/statement
-    Expenses.jsx
-    Reports.jsx
-  utils/
-    calc.js                Invoice / balance math
-    format.js              Currency + date formatting
-    pdf.js                 Invoice PDF generation
-    excel.js               Excel (.xlsx) exports
-```
+1. Push this repo to GitHub and **Import** it in Vercel.
+2. Vercel auto-detects Vite (build `npm run build`, output `dist`). A
+   `vercel.json` is included with an SPA rewrite.
+3. **Add the environment variables** in Vercel → Project → Settings →
+   Environment Variables (for Production **and** Preview):
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Deploy. If the vars are missing the app shows a clear "Configuration
+   needed" screen instead of a blank page — add them and redeploy.
 
-> **Note:** Data resets on refresh — this is a demo with no persistence layer.
+> Vite inlines `VITE_*` variables at **build time**, so after changing them in
+> Vercel you must trigger a new deployment.
+
+## Default demo accounts
+
+- Admin: `maaz` / `maaz123`
+- Company: `demo` / `demo123`

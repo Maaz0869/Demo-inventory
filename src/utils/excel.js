@@ -24,7 +24,7 @@ function download(sheets, fileName) {
 // ---------------------------------------------------------------------------
 // Customer statement — every invoice + payment with a running balance.
 // ---------------------------------------------------------------------------
-export function exportCustomerStatement(customer, invoices, payments, currency = 'PKR') {
+export function exportCustomerStatement(customer, invoices, payments, currency = 'ZAR') {
   const custInvoices = invoices.filter((i) => i.customerId === customer.id)
   const custPayments = payments.filter((p) => p.customerId === customer.id)
 
@@ -74,10 +74,17 @@ export function exportCustomerStatement(customer, invoices, payments, currency =
   )
 }
 
+// A short suffix like "_2026-07-01_to_2026-07-12" for filenames, or '' for all-time.
+function rangeSuffix(range) {
+  if (!range || (!range.from && !range.to)) return ''
+  return `_${range.from || 'start'}_to_${range.to || 'today'}`
+}
+
 // ---------------------------------------------------------------------------
-// Sales report
+// Sheet builders — each returns { name, rows } so they can be downloaded on
+// their own or bundled together in one workbook.
 // ---------------------------------------------------------------------------
-export function exportSalesReport(invoices, customers, currency = 'PKR') {
+function salesSheet(invoices, customers, currency) {
   const nameOf = (id) => customers.find((c) => c.id === id)?.name || '—'
   const rows = invoices
     .slice()
@@ -86,6 +93,7 @@ export function exportSalesReport(invoices, customers, currency = 'PKR') {
       Invoice: inv.id,
       Date: formatDate(inv.date),
       Customer: nameOf(inv.customerId),
+      Salesperson: inv.salesperson || '—',
       Items: inv.items.reduce((s, it) => s + Number(it.qty), 0),
       [`Subtotal (${currency})`]: invoiceSubtotal(inv),
       [`Discount (${currency})`]: Number(inv.discount) || 0,
@@ -94,13 +102,10 @@ export function exportSalesReport(invoices, customers, currency = 'PKR') {
       [`Balance (${currency})`]: invoiceBalance(inv),
       Status: inv.status,
     }))
-  download([{ name: 'Sales', rows: rows.length ? rows : [{ Note: 'No sales' }] }], 'Sales-Report.xlsx')
+  return { name: 'Sales', rows: rows.length ? rows : [{ Note: 'No sales in range' }] }
 }
 
-// ---------------------------------------------------------------------------
-// Expense report
-// ---------------------------------------------------------------------------
-export function exportExpenseReport(expenses, currency = 'PKR') {
+function expenseSheet(expenses, currency) {
   const rows = expenses
     .slice()
     .sort((a, b) => new Date(b.date) - new Date(a.date))
@@ -110,16 +115,10 @@ export function exportExpenseReport(expenses, currency = 'PKR') {
       Description: e.description,
       [`Amount (${currency})`]: Number(e.amount) || 0,
     }))
-  download(
-    [{ name: 'Expenses', rows: rows.length ? rows : [{ Note: 'No expenses' }] }],
-    'Expense-Report.xlsx',
-  )
+  return { name: 'Expenses', rows: rows.length ? rows : [{ Note: 'No expenses in range' }] }
 }
 
-// ---------------------------------------------------------------------------
-// Receivables report — outstanding per customer.
-// ---------------------------------------------------------------------------
-export function exportReceivablesReport(customers, invoices, payments, currency = 'PKR') {
+function receivablesSheet(customers, invoices, payments, currency) {
   const rows = customers
     .map((c) => ({
       Customer: c.name,
@@ -128,26 +127,76 @@ export function exportReceivablesReport(customers, invoices, payments, currency 
     }))
     .filter((r) => r[`Outstanding (${currency})`] > 0)
     .sort((a, b) => b[`Outstanding (${currency})`] - a[`Outstanding (${currency})`])
-  download(
-    [{ name: 'Receivables', rows: rows.length ? rows : [{ Note: 'No outstanding balances' }] }],
-    'Receivables-Report.xlsx',
-  )
+  return { name: 'Receivables', rows: rows.length ? rows : [{ Note: 'No outstanding balances' }] }
 }
 
-// ---------------------------------------------------------------------------
-// Inventory export
-// ---------------------------------------------------------------------------
-export function exportInventory(products, currency = 'PKR') {
+function inventorySheet(products, currency) {
   const rows = products.map((p) => ({
     'Part Name': p.name,
     'Part Number': p.partNumber,
     Category: p.category,
     Brand: p.brand,
     [`Cost (${currency})`]: p.costPrice,
-    [`Selling (${currency})`]: p.sellingPrice,
+    [`Actual (${currency})`]: p.sellingPrice,
+    [`Medium (${currency})`]: p.priceMedium ?? p.sellingPrice,
+    [`High (${currency})`]: p.priceHigh ?? p.sellingPrice,
     'In Stock': p.quantity,
     'Low Stock At': p.lowStockThreshold,
     Status: p.quantity <= p.lowStockThreshold ? 'LOW STOCK' : 'OK',
   }))
-  download([{ name: 'Inventory', rows }], 'Inventory.xlsx')
+  return { name: 'Inventory', rows: rows.length ? rows : [{ Note: 'No products' }] }
+}
+
+function summarySheet({ invoices, expenses, products }, currency, range) {
+  const sales = invoices.reduce((s, i) => s + invoiceTotal(i), 0)
+  const collected = invoices.reduce((s, i) => s + (Number(i.amountPaid) || 0), 0)
+  const expenseTotal = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const receivable = invoices.reduce((s, i) => s + invoiceBalance(i), 0)
+  const stockValue = products.reduce((s, p) => s + (p.sellingPrice || 0) * (p.quantity || 0), 0)
+  const rows = [
+    { Metric: 'Period', Value: range?.from || range?.to ? `${range.from || 'start'} → ${range.to || 'today'}` : 'All time' },
+    { Metric: 'Invoices', Value: invoices.length },
+    { Metric: `Total Sales (${currency})`, Value: sales },
+    { Metric: `Collected (${currency})`, Value: collected },
+    { Metric: `Outstanding (${currency})`, Value: receivable },
+    { Metric: `Total Expenses (${currency})`, Value: expenseTotal },
+    { Metric: `Net (Sales − Expenses) (${currency})`, Value: sales - expenseTotal },
+    { Metric: `Stock Value at Selling (${currency})`, Value: stockValue },
+  ]
+  return { name: 'Summary', rows }
+}
+
+// ---------------------------------------------------------------------------
+// Individual report exports (each its own file).
+// ---------------------------------------------------------------------------
+export function exportSalesReport(invoices, customers, currency = 'ZAR', range) {
+  download([salesSheet(invoices, customers, currency)], `Sales-Report${rangeSuffix(range)}.xlsx`)
+}
+
+export function exportExpenseReport(expenses, currency = 'ZAR', range) {
+  download([expenseSheet(expenses, currency)], `Expense-Report${rangeSuffix(range)}.xlsx`)
+}
+
+export function exportReceivablesReport(customers, invoices, payments, currency = 'ZAR') {
+  download([receivablesSheet(customers, invoices, payments, currency)], 'Receivables-Report.xlsx')
+}
+
+export function exportInventory(products, currency = 'ZAR') {
+  download([inventorySheet(products, currency)], 'Inventory.xlsx')
+}
+
+// ---------------------------------------------------------------------------
+// Combined report — one workbook, every report on its own sheet.
+// ---------------------------------------------------------------------------
+export function exportAllReports({ invoices, customers, expenses, payments, products }, currency = 'ZAR', range) {
+  download(
+    [
+      summarySheet({ invoices, expenses, products }, currency, range),
+      salesSheet(invoices, customers, currency),
+      expenseSheet(expenses, currency),
+      receivablesSheet(customers, invoices, payments, currency),
+      inventorySheet(products, currency),
+    ],
+    `Business-Report${rangeSuffix(range)}.xlsx`,
+  )
 }

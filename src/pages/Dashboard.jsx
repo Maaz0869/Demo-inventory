@@ -1,4 +1,5 @@
-// Dashboard: KPI cards, recent transactions and low-stock alerts.
+// Dashboard: KPI cards, charts, recent transactions and low-stock alerts.
+import { useMemo } from 'react'
 import {
   Package,
   AlertTriangle,
@@ -10,6 +11,50 @@ import { useApp } from '../context/AppContext'
 import { formatMoney, formatDate, todayISO } from '../utils/format'
 import { invoiceTotal, totalReceivables } from '../utils/calc'
 import { PageHeader, StatusBadge, EmptyState } from '../components/ui'
+
+// Vertical bar chart (last-N-days sales). Pure CSS bars — theme-aware, no deps.
+function SalesTrend({ data, currency }) {
+  const max = Math.max(1, ...data.map((d) => d.value))
+  return (
+    <div className="flex h-44 items-end gap-2 px-1">
+      {data.map((d) => (
+        <div key={d.iso} className="flex flex-1 flex-col items-center gap-1.5">
+          <div className="flex h-full w-full items-end justify-center rounded-t bg-gray-100/60 dark:bg-gray-800/50">
+            <div
+              className="w-full rounded-t bg-brand-500/85 transition-all hover:bg-brand-600"
+              style={{ height: `${Math.max(d.value ? 4 : 0, (d.value / max) * 100)}%` }}
+              title={`${d.label}: ${formatMoney(d.value, currency)}`}
+            />
+          </div>
+          <span className="text-[10px] font-medium text-gray-400">{d.label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Horizontal bars for a ranked list (e.g. top products by revenue).
+function RankedBars({ rows, currency }) {
+  const max = Math.max(1, ...rows.map((r) => r.value))
+  if (rows.length === 0) return <p className="py-8 text-center text-sm text-gray-400">No sales yet.</p>
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.name}>
+          <div className="mb-1 flex items-center justify-between gap-2 text-sm">
+            <span className="truncate text-gray-700 dark:text-gray-200">{r.name}</span>
+            <span className="shrink-0 font-semibold text-gray-900 dark:text-white">
+              {formatMoney(r.value, currency)}
+            </span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+            <div className="h-full rounded-full bg-brand-500" style={{ width: `${(r.value / max) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function KpiCard({ icon: Icon, label, value, accent, hint }) {
   return (
@@ -41,6 +86,37 @@ export default function Dashboard({ onNavigate }) {
 
   const recent = invoices.slice(0, 6)
   const customerName = (id) => customers.find((c) => c.id === id)?.name || '—'
+
+  // Sales for the last 7 days (for the trend chart).
+  const salesByDay = useMemo(() => {
+    const base = new Date(today + 'T00:00:00')
+    const out = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(base)
+      d.setDate(base.getDate() - i)
+      const iso = d.toISOString().slice(0, 10)
+      const value = invoices
+        .filter((inv) => inv.date === iso)
+        .reduce((s, inv) => s + invoiceTotal(inv), 0)
+      out.push({ iso, value, label: d.toLocaleDateString('en-GB', { weekday: 'short' }) })
+    }
+    return out
+  }, [invoices, today])
+  const weekSales = salesByDay.reduce((s, d) => s + d.value, 0)
+
+  // Top products by revenue.
+  const topProducts = useMemo(() => {
+    const tally = {}
+    invoices.forEach((inv) =>
+      inv.items.forEach((it) => {
+        tally[it.name] = (tally[it.name] || 0) + (Number(it.qty) || 0) * (Number(it.price) || 0)
+      }),
+    )
+    return Object.entries(tally)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5)
+  }, [invoices])
 
   return (
     <div>
@@ -76,6 +152,21 @@ export default function Dashboard({ onNavigate }) {
           accent="bg-emerald-600"
           hint="Outstanding udhaar"
         />
+      </div>
+
+      {/* Charts */}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="card p-5 lg:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-bold text-gray-900 dark:text-white">Sales — last 7 days</h2>
+            <span className="text-sm font-bold text-brand-600">{formatMoney(weekSales, currency)}</span>
+          </div>
+          <SalesTrend data={salesByDay} currency={currency} />
+        </div>
+        <div className="card p-5">
+          <h2 className="mb-4 font-bold text-gray-900 dark:text-white">Top Products (by revenue)</h2>
+          <RankedBars rows={topProducts} currency={currency} />
+        </div>
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">

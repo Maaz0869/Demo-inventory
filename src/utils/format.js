@@ -1,9 +1,9 @@
 // Currency + date formatting helpers.
 
-const SYMBOLS = { PKR: 'Rs', SAR: 'SAR' }
+const SYMBOLS = { ZAR: 'R' }
 
-/** Format a number as money in the active currency, e.g. "Rs 3,200". */
-export const formatMoney = (amount, currency = 'PKR') => {
+/** Format a number as money in the active currency, e.g. "R 3,200". */
+export const formatMoney = (amount, currency = 'ZAR') => {
   const symbol = SYMBOLS[currency] || currency
   const value = Number(amount) || 0
   const formatted = value.toLocaleString('en-US', {
@@ -14,7 +14,7 @@ export const formatMoney = (amount, currency = 'PKR') => {
 }
 
 /** Just the currency symbol. */
-export const currencySymbol = (currency = 'PKR') => SYMBOLS[currency] || currency
+export const currencySymbol = (currency = 'ZAR') => SYMBOLS[currency] || currency
 
 /** Human-friendly date, e.g. "11 Jul 2026". */
 export const formatDate = (iso) => {
