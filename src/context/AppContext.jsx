@@ -164,6 +164,9 @@ export function AppProvider({ children }) {
   // company it is currently managing (viewingCompany).
   const companyId =
     currentUser?.role === 'admin' ? viewingCompany?.id || null : currentUser?.companyId || null
+  // Display name of the company whose data is active (for invoice branding etc.)
+  const companyName =
+    currentUser?.role === 'admin' ? viewingCompany?.name || '' : currentUser?.name || ''
 
   const [state, baseDispatch] = useReducer(reducer, initialState)
   const [loading, setLoading] = useState(true)
@@ -260,6 +263,7 @@ export function AppProvider({ children }) {
     error,
     currency,
     setCurrency,
+    companyName,
     theme,
     toggleTheme,
   }

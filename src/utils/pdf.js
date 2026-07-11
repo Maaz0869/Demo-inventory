@@ -9,13 +9,14 @@ import { invoiceSubtotal, invoiceTax, invoiceTotal, invoiceBalance } from './cal
 import { formatMoney, formatDate } from './format'
 
 const SHOP = {
-  name: 'AutoParts Pro',
   tagline: 'Genuine Car Parts • Sales & Service',
   address: 'Auto Market, Lahore / Riyadh',
   phone: '+92 300 1234567',
 }
 
-export function generateInvoicePDF(invoice, customer, currency = 'PKR') {
+// `shopName` is the company the invoice belongs to (each tenant brands its own
+// invoices). Falls back to the product name if not provided.
+export function generateInvoicePDF(invoice, customer, currency = 'PKR', shopName = 'AutoParts Pro') {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const marginX = 40
@@ -29,7 +30,7 @@ export function generateInvoicePDF(invoice, customer, currency = 'PKR') {
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(22)
-  doc.text(SHOP.name, marginX, 44)
+  doc.text(shopName || 'AutoParts Pro', marginX, 44)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(220, 220, 220)

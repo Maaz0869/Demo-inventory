@@ -351,7 +351,7 @@ function PaymentModal({ invoice, onClose }) {
 // Billing page
 // ---------------------------------------------------------------------------
 export default function Billing() {
-  const { state, currency } = useApp()
+  const { state, currency, companyName } = useApp()
   const { invoices, customers } = state
 
   const [showBuilder, setShowBuilder] = useState(false)
@@ -453,7 +453,7 @@ export default function Billing() {
                         )}
                         <button
                           onClick={() =>
-                            generateInvoicePDF(inv, customerById(inv.customerId), currency)
+                            generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName)
                           }
                           className="btn-ghost !p-2"
                           title="Download PDF"
@@ -480,7 +480,7 @@ export default function Billing() {
             onClose={(inv) => {
               setShowBuilder(false)
               // Offer immediate PDF download of the freshly created invoice.
-              if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency)
+              if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName)
             }}
           />
         )}
