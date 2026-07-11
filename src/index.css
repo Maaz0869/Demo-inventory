@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- Base theme tokens ---- */
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-gray-100 text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+  }
+}
+
+/* ---- Reusable component classes ---- */
+@layer components {
+  .card {
+    @apply rounded-2xl bg-white shadow-card ring-1 ring-gray-200 transition-colors
+           dark:bg-gray-900 dark:ring-gray-800;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold
+           transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+           focus:ring-brand-500 focus:ring-offset-white dark:focus:ring-offset-gray-900
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply btn bg-gray-100 text-gray-800 hover:bg-gray-200
+           dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-gray-600 hover:bg-gray-100
+           dark:text-gray-300 dark:hover:bg-gray-800;
+  }
+  .btn-danger {
+    @apply btn bg-red-50 text-brand-700 hover:bg-red-100
+           dark:bg-red-950/40 dark:text-brand-300 dark:hover:bg-red-900/40;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900
+           placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2
+           focus:ring-brand-500/30 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100
+           dark:placeholder:text-gray-500;
+  }
+  .label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
+}
+
+/* Thin scrollbars for a cleaner look */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-gray-300 dark:bg-gray-700;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
