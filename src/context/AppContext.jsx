@@ -226,6 +226,41 @@ export function AppProvider({ children }) {
     }
   }, [companyId])
 
+  // Per-company invoice settings (bank details, terms, address, etc.).
+  const [settings, setSettings] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    if (!companyId) {
+      setSettings(null)
+      return
+    }
+    ;(async () => {
+      const { data } = await supabase
+        .from('company_settings')
+        .select('*')
+        .eq('companyId', companyId)
+        .maybeSingle()
+      if (!cancelled) setSettings(data || {})
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  const saveSettings = async (patch) => {
+    const cid = companyRef.current
+    if (!cid) return { ok: false }
+    const row = { companyId: cid, ...settings, ...patch }
+    const { error } = await supabase.from('company_settings').upsert(row, { onConflict: 'companyId' })
+    if (error) {
+      toast('Could not save settings', 'error')
+      return { ok: false }
+    }
+    setSettings(row)
+    toast('Invoice settings saved', 'success')
+    return { ok: true }
+  }
+
   // Wrapped dispatch: apply locally (optimistic) then persist the diff.
   const dispatch = (action) => {
     const prev = stateRef.current
@@ -264,6 +299,8 @@ export function AppProvider({ children }) {
     currency,
     setCurrency,
     companyName,
+    settings,
+    saveSettings,
     theme,
     toggleTheme,
   }

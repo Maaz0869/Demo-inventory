@@ -8,6 +8,7 @@ import {
   BarChart3,
   UserCog,
   Gauge,
+  Settings as SettingsIcon,
   Wrench,
   X,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ const NAV = [
   { key: 'customers', label: 'Customers', icon: Users, companyOnly: true },
   { key: 'expenses', label: 'Expenses', icon: Wallet, companyOnly: true },
   { key: 'reports', label: 'Reports', icon: BarChart3, companyOnly: true },
+  { key: 'settings', label: 'Settings', icon: SettingsIcon, companyOnly: true },
   // Platform admin only.
   { key: 'users', label: 'Companies', icon: UserCog, adminOnly: true },
 ]

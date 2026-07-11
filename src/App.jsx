@@ -10,6 +10,7 @@ import Expenses from './pages/Expenses'
 import Reports from './pages/Reports'
 import Users from './pages/Users'
 import Overview from './pages/Overview'
+import Settings from './pages/Settings'
 import Login from './pages/Login'
 import { useApp } from './context/AppContext'
 import { useAuth } from './context/AuthContext'
@@ -23,6 +24,7 @@ const PAGES = {
   reports: Reports,
   users: Users,
   overview: Overview,
+  settings: Settings,
 }
 
 export default function App() {
@@ -43,7 +45,7 @@ export default function App() {
   // No session → show the login screen.
   if (!currentUser) return <Login />
 
-  const OPERATIONAL = ['dashboard', 'inventory', 'billing', 'customers', 'expenses', 'reports']
+  const OPERATIONAL = ['dashboard', 'inventory', 'billing', 'customers', 'expenses', 'reports', 'settings']
 
   // A company sees its own operational screens. The admin lands on the platform
   // Overview + Companies; while managing a company it also gets that company's

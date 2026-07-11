@@ -13,7 +13,9 @@ const blankProduct = {
   category: CATEGORIES[0],
   brand: '',
   costPrice: '',
-  sellingPrice: '',
+  sellingPrice: '', // "Actual" selling price
+  priceMedium: '',
+  priceHigh: '',
   quantity: '',
   lowStockThreshold: '',
 }
@@ -28,6 +30,8 @@ function ProductForm({ initial, onSubmit, onCancel }) {
       ...form,
       costPrice: Number(form.costPrice) || 0,
       sellingPrice: Number(form.sellingPrice) || 0,
+      priceMedium: Number(form.priceMedium) || 0,
+      priceHigh: Number(form.priceHigh) || 0,
       quantity: Number(form.quantity) || 0,
       lowStockThreshold: Number(form.lowStockThreshold) || 0,
     })
@@ -93,18 +97,52 @@ function ProductForm({ initial, onSubmit, onCancel }) {
             required
             value={form.costPrice}
             onChange={(e) => set('costPrice', e.target.value)}
+            placeholder="What you paid"
           />
         </div>
-        <div>
-          <label className="label">Selling Price</label>
-          <input
-            type="number"
-            min="0"
-            className="input"
-            required
-            value={form.sellingPrice}
-            onChange={(e) => set('sellingPrice', e.target.value)}
-          />
+        <div className="hidden sm:block" />
+        {/* Three selling tiers so the seller knows each price level */}
+        <div className="sm:col-span-2">
+          <label className="label">Selling Prices</label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                Actual
+              </span>
+              <input
+                type="number"
+                min="0"
+                className="input"
+                required
+                value={form.sellingPrice}
+                onChange={(e) => set('sellingPrice', e.target.value)}
+              />
+            </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                Medium
+              </span>
+              <input
+                type="number"
+                min="0"
+                className="input"
+                value={form.priceMedium}
+                onChange={(e) => set('priceMedium', e.target.value)}
+              />
+            </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                High
+              </span>
+              <input
+                type="number"
+                min="0"
+                className="input"
+                value={form.priceHigh}
+                onChange={(e) => set('priceHigh', e.target.value)}
+              />
+            </div>
+          </div>
         </div>
         <div className="sm:col-span-2">
           <label className="label">Low-stock Threshold</label>
@@ -210,7 +248,7 @@ export default function Inventory() {
                 <th className="px-4 py-3 font-semibold">Category</th>
                 <th className="px-4 py-3 font-semibold">Brand</th>
                 <th className="px-4 py-3 text-right font-semibold">Cost</th>
-                <th className="px-4 py-3 text-right font-semibold">Selling</th>
+                <th className="px-4 py-3 text-right font-semibold">Selling (A / M / H)</th>
                 <th className="px-4 py-3 text-center font-semibold">Stock</th>
                 <th className="px-4 py-3 text-right font-semibold">Actions</th>
               </tr>
@@ -229,8 +267,14 @@ export default function Inventory() {
                     <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">
                       {formatMoney(p.costPrice, currency)}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">
-                      {formatMoney(p.sellingPrice, currency)}
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-semibold text-gray-900 dark:text-white">
+                        {formatMoney(p.sellingPrice, currency)}
+                      </span>
+                      <span className="block text-xs text-gray-400">
+                        {formatMoney(p.priceMedium ?? p.sellingPrice, currency)} /{' '}
+                        {formatMoney(p.priceHigh ?? p.sellingPrice, currency)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span

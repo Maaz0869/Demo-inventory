@@ -53,13 +53,31 @@ function InvoiceBuilder({ onClose }) {
   const addItem = (p) => {
     setItems((cur) => [
       ...cur,
-      { productId: p.id, name: p.name, qty: 1, price: p.sellingPrice, stock: p.quantity },
+      {
+        productId: p.id,
+        name: p.name,
+        qty: 1,
+        price: p.sellingPrice,
+        prices: {
+          actual: p.sellingPrice,
+          medium: p.priceMedium ?? p.sellingPrice,
+          high: p.priceHigh ?? p.sellingPrice,
+        },
+        tier: 'actual',
+        stock: p.quantity,
+      },
     ])
     setProductSearch('')
   }
 
   const updateItem = (idx, patch) =>
     setItems((cur) => cur.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+
+  // Switching tier sets the price to that tier's value (still editable after).
+  const changeTier = (idx, tier) =>
+    setItems((cur) =>
+      cur.map((it, i) => (i === idx ? { ...it, tier, price: it.prices?.[tier] ?? it.price } : it)),
+    )
   const removeItem = (idx) => setItems((cur) => cur.filter((_, i) => i !== idx))
 
   // Draft invoice object used for live totals.
@@ -155,6 +173,7 @@ function InvoiceBuilder({ onClose }) {
             <tr>
               <th className="px-3 py-2 font-semibold">Item</th>
               <th className="px-3 py-2 text-center font-semibold">Qty</th>
+              <th className="px-3 py-2 text-center font-semibold">Tier</th>
               <th className="px-3 py-2 text-right font-semibold">Price</th>
               <th className="px-3 py-2 text-right font-semibold">Total</th>
               <th className="px-3 py-2"></th>
@@ -163,7 +182,7 @@ function InvoiceBuilder({ onClose }) {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-sm text-gray-400">
+                <td colSpan={6} className="px-3 py-6 text-center text-sm text-gray-400">
                   No items yet — search above to add parts.
                 </td>
               </tr>
@@ -188,6 +207,18 @@ function InvoiceBuilder({ onClose }) {
                         value={it.qty}
                         onChange={(e) => updateItem(idx, { qty: e.target.value })}
                       />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <select
+                        className="input !w-24 !py-1"
+                        value={it.tier || 'actual'}
+                        onChange={(e) => changeTier(idx, e.target.value)}
+                        title="Price tier"
+                      >
+                        <option value="actual">Actual</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
                     </td>
                     <td className="px-3 py-2 text-right">
                       <input
@@ -351,7 +382,7 @@ function PaymentModal({ invoice, onClose }) {
 // Billing page
 // ---------------------------------------------------------------------------
 export default function Billing() {
-  const { state, currency, companyName } = useApp()
+  const { state, currency, companyName, settings } = useApp()
   const { invoices, customers } = state
 
   const [showBuilder, setShowBuilder] = useState(false)
@@ -453,7 +484,7 @@ export default function Billing() {
                         )}
                         <button
                           onClick={() =>
-                            generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName)
+                            generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName, settings || {})
                           }
                           className="btn-ghost !p-2"
                           title="Download PDF"
@@ -480,7 +511,7 @@ export default function Billing() {
             onClose={(inv) => {
               setShowBuilder(false)
               // Offer immediate PDF download of the freshly created invoice.
-              if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName)
+              if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName, settings || {})
             }}
           />
         )}

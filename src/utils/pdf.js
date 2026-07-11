@@ -8,15 +8,16 @@ import autoTable from 'jspdf-autotable'
 import { invoiceSubtotal, invoiceTax, invoiceTotal, invoiceBalance } from './calc'
 import { formatMoney, formatDate } from './format'
 
-const SHOP = {
-  tagline: 'Genuine Car Parts • Sales & Service',
-  address: 'Auto Market, Lahore / Riyadh',
-  phone: '+92 300 1234567',
-}
-
 // `shopName` is the company the invoice belongs to (each tenant brands its own
-// invoices). Falls back to the product name if not provided.
-export function generateInvoicePDF(invoice, customer, currency = 'ZAR', shopName = 'AutoParts Pro') {
+// invoices). `shop` carries that company's saved invoice settings (address,
+// phone, email, bank details, terms) — all optional.
+export function generateInvoicePDF(
+  invoice,
+  customer,
+  currency = 'ZAR',
+  shopName = 'AutoParts Pro',
+  shop = {},
+) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const marginX = 40
@@ -34,8 +35,9 @@ export function generateInvoicePDF(invoice, customer, currency = 'ZAR', shopName
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(220, 220, 220)
-  doc.text(SHOP.tagline, marginX, 60)
-  doc.text(`${SHOP.address}  •  ${SHOP.phone}`, marginX, 74)
+  const contact = [shop.phone, shop.email].filter(Boolean).join('  •  ')
+  doc.text(contact || 'Genuine Car Parts • Sales & Service', marginX, 60)
+  if (shop.address) doc.text(String(shop.address).replace(/\n/g, ', '), marginX, 74)
 
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'bold')
@@ -123,15 +125,38 @@ export function generateInvoicePDF(invoice, customer, currency = 'ZAR', shopName
   line('Paid', formatMoney(invoice.amountPaid || 0, currency))
   if (balance > 0) line('Balance Due', formatMoney(balance, currency), true)
 
-  // ---- Footer ----
+  // ---- Footer: bank details + terms (from the company's saved settings) ----
   const pageH = doc.internal.pageSize.getHeight()
+  let fy = pageH - 96
   doc.setDrawColor(229, 231, 235)
-  doc.line(marginX, pageH - 60, pageW - marginX, pageH - 60)
+  doc.line(marginX, fy, pageW - marginX, fy)
+  fy += 14
+
+  const colW = (pageW - marginX * 2) / 2 - 10
+  if (shop.bankDetails) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(75, 85, 99)
+    doc.text('BANK DETAILS', marginX, fy)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(107, 114, 128)
+    doc.text(doc.splitTextToSize(String(shop.bankDetails), colW), marginX, fy + 12)
+  }
+  if (shop.terms) {
+    const tx = marginX + colW + 20
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(75, 85, 99)
+    doc.text('TERMS & CONDITIONS', tx, fy)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(107, 114, 128)
+    doc.text(doc.splitTextToSize(String(shop.terms), colW), tx, fy + 12)
+  }
+
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(156, 163, 175)
-  doc.text('Thank you for your business!  Goods once sold are subject to shop policy.', marginX, pageH - 42)
-  doc.text('Computer generated invoice — no signature required.', marginX, pageH - 30)
+  doc.text('Computer generated invoice — no signature required.', marginX, pageH - 24)
 
   doc.save(`${invoice.id}.pdf`)
 }
