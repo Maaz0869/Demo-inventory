@@ -30,7 +30,16 @@ export default function App() {
   const [active, setActive] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, toggleTheme, currency, setCurrency, loading, error } = useApp()
-  const { currentUser, isAdmin, logout, viewingCompany, setViewingCompany } = useAuth()
+  const { currentUser, isAdmin, logout, viewingCompany, setViewingCompany, authLoading } = useAuth()
+
+  // Restoring an existing session → brief splash (avoids flashing the login).
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100 dark:bg-gray-950">
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-brand-600" />
+      </div>
+    )
+  }
 
   // No session → show the login screen.
   if (!currentUser) return <Login />

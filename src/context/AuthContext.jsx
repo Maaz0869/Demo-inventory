@@ -1,9 +1,14 @@
 // -----------------------------------------------------------------------------
-// Authentication + user management, backed by the Supabase `users` table.
-// Handles login/logout and lets an admin block / unblock / add / remove users.
-// The active session pointer is kept in localStorage; the accounts themselves
-// live in Supabase so blocking a user is enforced for everyone, everywhere.
-// NOTE: passwords are stored in plain text — demo build, no Supabase Auth.
+// Authentication + company management, backed by Supabase Auth + RLS.
+//
+// Companies and the platform admin are real Supabase Auth users (passwords are
+// hashed by Supabase, never stored by us). To keep the username-based UX, each
+// account uses a synthetic email `<username>@autoparts.local`.
+//
+// The database enforces isolation via RLS, so nothing here can leak another
+// company's data. Admin-only provisioning (create / edit / block / delete) runs
+// through SECURITY DEFINER RPC functions that verify the caller is an admin —
+// the service key is never shipped to the browser.
 // -----------------------------------------------------------------------------
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -11,130 +16,127 @@ import { useToast } from './ToastContext'
 
 const AuthContext = createContext(null)
 
-function loadCurrentUser() {
-  try {
-    const raw = localStorage.getItem('currentUser')
-    if (raw) return JSON.parse(raw)
-  } catch {
-    /* ignore */
-  }
-  return null
+const DOMAIN = '@autoparts.local'
+const emailFor = (username) => `${String(username).trim().toLowerCase()}${DOMAIN}`
+
+// Map raw RPC error codes to friendly messages.
+const RPC_ERRORS = {
+  username_taken: 'That username already exists.',
+  missing_fields: 'Username and password are required.',
+  not_authorized: 'You are not allowed to do that.',
 }
+const friendly = (error) => RPC_ERRORS[error?.message] || 'Something went wrong. Please try again.'
 
 export function AuthProvider({ children }) {
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [users, setUsers] = useState([])
-  const [currentUser, setCurrentUser] = useState(loadCurrentUser)
-  // Company the admin is currently managing (viewing/editing its data). {id, name} | null.
   const [viewingCompany, setViewingCompanyState] = useState(null)
   const setViewingCompany = (company) =>
     setViewingCompanyState(company ? { id: company.id, name: company.name } : null)
   const toast = useToast()
 
-  // Load the company accounts (admin only — used by the Companies page).
-  const refreshUsers = async () => {
-    const { data, error } = await supabase.from('users').select('*').order('id')
-    if (!error && data) setUsers(data)
+  // Turn a Supabase session user into our currentUser via its profile row.
+  const loadProfile = async (uid) => {
+    const { data } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle()
+    if (data) {
+      setCurrentUser({
+        id: data.id,
+        username: data.username,
+        name: data.name,
+        role: data.role,
+        companyId: data.companyId || null,
+      })
+    } else {
+      setCurrentUser(null)
+    }
   }
 
+  // Restore an existing session on load, and react to sign-in / sign-out.
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!active) return
+      if (session?.user) await loadProfile(session.user.id)
+      setAuthLoading(false)
+    })()
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        loadProfile(session.user.id)
+      } else {
+        setCurrentUser(null)
+        setViewingCompanyState(null)
+      }
+    })
+    return () => {
+      active = false
+      sub.subscription.unsubscribe()
+    }
+  }, [])
+
+  // Admin: load every company profile for the Companies page.
+  const refreshUsers = async () => {
+    const { data } = await supabase.from('profiles').select('*').order('username')
+    if (data) setUsers(data)
+  }
   useEffect(() => {
     if (currentUser?.role === 'admin') refreshUsers()
     else setUsers([])
   }, [currentUser])
 
-  // Persist the session pointer.
-  useEffect(() => {
-    if (currentUser) localStorage.setItem('currentUser', JSON.stringify(currentUser))
-    else localStorage.removeItem('currentUser')
-  }, [currentUser])
-
-  // If the admin blocks/removes a company that is currently viewing, kick it out.
-  useEffect(() => {
-    if (!currentUser || currentUser.role === 'admin' || users.length === 0) return
-    const rec = users.find((u) => u.id === currentUser.id)
-    if (rec && rec.status === 'blocked') setCurrentUser(null)
-  }, [users, currentUser])
-
   // --- Session ---------------------------------------------------------------
   const login = async (username, password) => {
-    const uname = String(username).trim()
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .ilike('username', uname)
-      .limit(1)
-    if (error) return { ok: false, error: 'Could not reach the server. Try again.' }
-    const u = data?.[0]
-    if (!u || u.password !== password) return { ok: false, error: 'Invalid username or password.' }
-    if (u.status === 'blocked') return { ok: false, error: 'This account is blocked. Please contact the admin.' }
-    setCurrentUser({
-      id: u.id,
-      username: u.username,
-      name: u.name,
-      role: u.role,
-      companyId: u.companyId || null,
-    })
-    return { ok: true }
-  }
-
-  const logout = () => {
-    setCurrentUser(null)
-    setViewingCompanyState(null)
-  }
-
-  // --- Company management (admin) ---------------------------------------------
-  // Each account created here is its own company: companyId equals its own id,
-  // so all of that company's data is isolated from every other company.
-  const addUser = async ({ username, password, name }) => {
-    const uname = String(username).trim()
-    if (!uname || !password) return { ok: false, error: 'Username and password are required.' }
-
-    const { data: existing } = await supabase
-      .from('users')
-      .select('id')
-      .ilike('username', uname)
-      .limit(1)
-    if (existing?.length) return { ok: false, error: 'That username already exists.' }
-
-    const id = `U-${Date.now()}`
-    const row = {
-      id,
-      username: uname,
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailFor(username),
       password,
-      name: name?.trim() || uname,
-      role: 'user',
-      status: 'active',
-      companyId: id,
+    })
+    if (error) {
+      const blocked = /ban|block/i.test(error.message)
+      return {
+        ok: false,
+        error: blocked
+          ? 'This account is blocked. Please contact the admin.'
+          : 'Invalid username or password.',
+      }
     }
-    const { error } = await supabase.from('users').insert(row)
-    if (error) return { ok: false, error: 'Could not create the company.' }
-    setUsers((list) => [...list, row])
-    toast(`Company "${row.name}" created`, 'success')
+    return { ok: true } // onAuthStateChange loads the profile
+  }
+
+  const logout = () => supabase.auth.signOut()
+
+  // --- Company management (admin, via RPC) ------------------------------------
+  const addUser = async ({ username, password, name }) => {
+    const { error } = await supabase.rpc('admin_create_company', {
+      p_username: username,
+      p_password: password,
+      p_name: name,
+    })
+    if (error) return { ok: false, error: friendly(error) }
+    await refreshUsers()
+    toast(`Company "${name || username}" created`, 'success')
     return { ok: true }
   }
 
-  // Edit a company's details / reset its password. A blank password keeps the
-  // current one. Also used by the admin to change its own password.
-  const updateUser = async ({ id, name, username, password }) => {
-    const uname = String(username).trim()
-    if (!uname) return { ok: false, error: 'Username is required.' }
-
-    const { data: existing } = await supabase
-      .from('users')
-      .select('id')
-      .ilike('username', uname)
-      .neq('id', id)
-      .limit(1)
-    if (existing?.length) return { ok: false, error: 'That username already exists.' }
-
-    const patch = { username: uname, name: name?.trim() || uname }
-    if (password) patch.password = password
-
-    const { error } = await supabase.from('users').update(patch).eq('id', id)
-    if (error) return { ok: false, error: 'Could not save changes.' }
-
-    setUsers((list) => list.map((u) => (u.id === id ? { ...u, ...patch } : u)))
-    // Keep the live session label in sync if the admin edited itself.
-    setCurrentUser((cu) => (cu && cu.id === id ? { ...cu, username: uname, name: patch.name } : cu))
+  const updateUser = async ({ id, username, name, password }) => {
+    const { error } = await supabase.rpc('admin_update_company', {
+      p_id: id,
+      p_username: username,
+      p_name: name,
+      p_password: password || '',
+    })
+    if (error) return { ok: false, error: friendly(error) }
+    await refreshUsers()
+    if (currentUser?.id === id) {
+      setCurrentUser((cu) => ({
+        ...cu,
+        username: String(username).trim().toLowerCase(),
+        name: name?.trim() || cu.name,
+      }))
+    }
     toast('Changes saved', 'success')
     return { ok: true }
   }
@@ -142,18 +144,18 @@ export function AuthProvider({ children }) {
   const toggleBlock = async (id) => {
     const u = users.find((x) => x.id === id)
     if (!u) return
-    const status = u.status === 'blocked' ? 'active' : 'blocked'
-    const { error } = await supabase.from('users').update({ status }).eq('id', id)
+    const block = u.status !== 'blocked'
+    const { error } = await supabase.rpc('admin_set_blocked', { p_id: id, p_blocked: block })
     if (error) return toast('Could not update the company', 'error')
-    setUsers((list) => list.map((x) => (x.id === id ? { ...x, status } : x)))
-    toast(status === 'blocked' ? `"${u.name}" blocked` : `"${u.name}" unblocked`, 'success')
+    await refreshUsers()
+    toast(block ? `"${u.name}" blocked` : `"${u.name}" unblocked`, 'success')
   }
 
   const deleteUser = async (id) => {
     const u = users.find((x) => x.id === id)
-    const { error } = await supabase.from('users').delete().eq('id', id)
+    const { error } = await supabase.rpc('admin_delete_company', { p_id: id })
     if (error) return toast('Could not delete the company', 'error')
-    setUsers((list) => list.filter((x) => x.id !== id))
+    await refreshUsers()
     toast(`Company "${u?.name || ''}" deleted`, 'success')
   }
 
@@ -163,6 +165,7 @@ export function AuthProvider({ children }) {
     users,
     currentUser,
     isAdmin,
+    authLoading,
     viewingCompany,
     setViewingCompany,
     login,

@@ -2,7 +2,7 @@
 // with fully isolated data. Admin can add companies, block / unblock (open)
 // them, and remove them. A blocked company cannot sign in.
 import { useState } from 'react'
-import { Plus, Building2, Lock, Unlock, Trash2, PencilRuler, Pencil, Eye, EyeOff } from 'lucide-react'
+import { Plus, Building2, Lock, Unlock, Trash2, PencilRuler, Pencil } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { Modal, PageHeader, EmptyState, ConfirmDialog } from '../components/ui'
 
@@ -80,7 +80,6 @@ export default function Users({ onNavigate }) {
   // form = null (closed) | { mode:'add' } | { mode:'edit', company }
   const [form, setForm] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
-  const [showPasswords, setShowPasswords] = useState(false)
 
   // Open a company's workspace: load its data and jump to its dashboard.
   const manage = (company) => {
@@ -123,17 +122,6 @@ export default function Users({ onNavigate }) {
                 <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-400 dark:border-gray-800">
                   <th className="px-5 py-3 font-semibold">Company</th>
                   <th className="px-5 py-3 font-semibold">Username</th>
-                  <th className="px-5 py-3 font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswords((s) => !s)}
-                      className="flex items-center gap-1.5 font-semibold uppercase tracking-wide text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                      title={showPasswords ? 'Hide passwords' : 'Show passwords'}
-                    >
-                      Password
-                      {showPasswords ? <EyeOff size={13} /> : <Eye size={13} />}
-                    </button>
-                  </th>
                   <th className="px-5 py-3 font-semibold">Status</th>
                   <th className="px-5 py-3 text-right font-semibold">Actions</th>
                 </tr>
@@ -154,9 +142,6 @@ export default function Users({ onNavigate }) {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-gray-500 dark:text-gray-400">{u.username}</td>
-                      <td className="px-5 py-3 font-mono text-gray-600 dark:text-gray-300">
-                        {showPasswords ? u.password : '••••••••'}
-                      </td>
                       <td className="px-5 py-3">
                         <span
                           className={`badge ${
