@@ -67,6 +67,7 @@ export function generateInvoicePDF(
   doc.setTextColor(200, 202, 208)
   doc.text(`# ${invoice.id}`, pageW - mX, 68, { align: 'right' })
   doc.text(formatDate(invoice.date), pageW - mX, 82, { align: 'right' })
+  if (invoice.salesperson) doc.text(`By: ${invoice.salesperson}`, pageW - mX, 96, { align: 'right' })
 
   // ---- Bill-to + status ----
   let y = 158

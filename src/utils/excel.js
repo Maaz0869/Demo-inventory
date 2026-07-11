@@ -93,6 +93,7 @@ function salesSheet(invoices, customers, currency) {
       Invoice: inv.id,
       Date: formatDate(inv.date),
       Customer: nameOf(inv.customerId),
+      Salesperson: inv.salesperson || '—',
       Items: inv.items.reduce((s, it) => s + Number(it.qty), 0),
       [`Subtotal (${currency})`]: invoiceSubtotal(inv),
       [`Discount (${currency})`]: Number(inv.discount) || 0,

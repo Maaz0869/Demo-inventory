@@ -27,15 +27,19 @@ import { nextId } from '../data/mockData'
 // ---------------------------------------------------------------------------
 function InvoiceBuilder({ onClose }) {
   const { state, dispatch, currency } = useApp()
-  const { products, customers } = state
+  const { products, customers, invoices } = state
 
   const [customerId, setCustomerId] = useState(customers[0]?.id || '')
   const [date, setDate] = useState(todayISO())
+  const [salesperson, setSalesperson] = useState('')
   const [items, setItems] = useState([]) // { productId, name, qty, price, stock }
   const [discount, setDiscount] = useState(0)
   const [taxPercent, setTaxPercent] = useState(0)
   const [status, setStatus] = useState('Paid')
   const [productSearch, setProductSearch] = useState('')
+
+  // Suggest previously-used salesperson names.
+  const salespeople = [...new Set(invoices.map((i) => i.salesperson).filter(Boolean))]
 
   // Products matching the search box, excluding ones already added.
   const matches = useMemo(() => {
@@ -96,6 +100,7 @@ function InvoiceBuilder({ onClose }) {
       id: nextId('INV'),
       customerId,
       date,
+      salesperson: salesperson.trim(),
       items: items.map(({ productId, name, qty, price }) => ({
         productId,
         name,
@@ -128,6 +133,21 @@ function InvoiceBuilder({ onClose }) {
         <div>
           <label className="label">Date</label>
           <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">Salesperson</label>
+          <input
+            className="input"
+            list="salespeople"
+            value={salesperson}
+            onChange={(e) => setSalesperson(e.target.value)}
+            placeholder="Who is making this invoice?"
+          />
+          <datalist id="salespeople">
+            {salespeople.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
       </div>
 
@@ -454,6 +474,9 @@ export default function Billing() {
                     <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">{inv.id}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                       {customerName(inv.customerId)}
+                      {inv.salesperson && (
+                        <p className="text-xs text-gray-400">By: {inv.salesperson}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatDate(inv.date)}</td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">
