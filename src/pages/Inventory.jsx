@@ -1,11 +1,72 @@
 // Inventory: searchable/filterable product table with add / edit / delete.
 import { useMemo, useState } from 'react'
-import { Plus, Search, Pencil, Trash2, Package, Download, AlertTriangle } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Package, PackagePlus, Download, AlertTriangle } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { CATEGORIES } from '../data/mockData'
 import { formatMoney } from '../utils/format'
 import { exportInventory } from '../utils/excel'
 import { Modal, PageHeader, EmptyState } from '../components/ui'
+
+// Add-stock (restock) form: increase a product's quantity, optionally update cost.
+function StockInForm({ product, currency, onSubmit, onCancel }) {
+  const [qty, setQty] = useState('')
+  const [cost, setCost] = useState('')
+  const add = Number(qty) || 0
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSubmit(add, cost)
+      }}
+      className="space-y-4"
+    >
+      <div className="rounded-xl bg-gray-50 p-3 text-sm dark:bg-gray-800/60">
+        <p className="font-semibold text-gray-900 dark:text-white">{product.name}</p>
+        <p className="text-gray-500 dark:text-gray-400">
+          Current stock: <span className="font-bold">{product.quantity}</span> · Cost{' '}
+          {formatMoney(product.costPrice, currency)}
+        </p>
+      </div>
+      <div>
+        <label className="label">Quantity to Add</label>
+        <input
+          type="number"
+          min="1"
+          className="input"
+          required
+          autoFocus
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          placeholder="e.g. 20"
+        />
+      </div>
+      <div>
+        <label className="label">New Cost Price (optional)</label>
+        <input
+          type="number"
+          min="0"
+          className="input"
+          value={cost}
+          onChange={(e) => setCost(e.target.value)}
+          placeholder="Leave blank to keep current"
+        />
+      </div>
+      {add > 0 && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          New stock will be <span className="font-bold text-gray-900 dark:text-white">{Number(product.quantity) + add}</span>.
+        </p>
+      )}
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="button" onClick={onCancel} className="btn-secondary">
+          Cancel
+        </button>
+        <button type="submit" className="btn-primary">
+          <PackagePlus size={16} /> Add Stock
+        </button>
+      </div>
+    </form>
+  )
+}
 
 const blankProduct = {
   name: '',
@@ -178,6 +239,7 @@ export default function Inventory() {
   const [lowOnly, setLowOnly] = useState(false)
   const [modal, setModal] = useState(null) // { mode: 'add' | 'edit', product }
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [restock, setRestock] = useState(null) // product being restocked
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -291,6 +353,13 @@ export default function Inventory() {
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
                         <button
+                          onClick={() => setRestock(p)}
+                          className="btn-ghost !p-2 text-emerald-600"
+                          title="Add stock"
+                        >
+                          <PackagePlus size={16} />
+                        </button>
+                        <button
                           onClick={() => setModal({ mode: 'edit', product: p })}
                           className="btn-ghost !p-2"
                           title="Edit"
@@ -348,6 +417,28 @@ export default function Inventory() {
             Delete
           </button>
         </div>
+      </Modal>
+
+      {/* Stock-in / restock */}
+      <Modal open={!!restock} onClose={() => setRestock(null)} title="Add Stock" size="sm">
+        {restock && (
+          <StockInForm
+            product={restock}
+            currency={currency}
+            onCancel={() => setRestock(null)}
+            onSubmit={(addQty, newCost) => {
+              dispatch({
+                type: 'UPDATE_PRODUCT',
+                product: {
+                  ...restock,
+                  quantity: Number(restock.quantity) + Number(addQty || 0),
+                  costPrice: newCost !== '' ? Number(newCost) : restock.costPrice,
+                },
+              })
+              setRestock(null)
+            }}
+          />
+        )}
       </Modal>
     </div>
   )

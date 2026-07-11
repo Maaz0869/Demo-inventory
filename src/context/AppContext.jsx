@@ -71,6 +71,36 @@ function reducer(state, action) {
       return { ...state, invoices: [invoice, ...state.invoices], products }
     }
 
+    // Edit an existing invoice: restore the old items' stock, deduct the new
+    // items' stock (net delta), and replace the invoice.
+    case 'UPDATE_INVOICE': {
+      const { invoice: next, prev } = action
+      const delta = {} // productId -> net stock change
+      ;(prev.items || []).forEach((it) => {
+        delta[it.productId] = (delta[it.productId] || 0) + Number(it.qty || 0)
+      })
+      ;(next.items || []).forEach((it) => {
+        delta[it.productId] = (delta[it.productId] || 0) - Number(it.qty || 0)
+      })
+      const products = state.products.map((p) =>
+        delta[p.id] ? { ...p, quantity: Math.max(0, p.quantity + delta[p.id]) } : p,
+      )
+      const invoices = state.invoices.map((i) => (i.id === next.id ? next : i))
+      return { ...state, invoices, products }
+    }
+
+    // Void / cancel an invoice: remove it and add its items' stock back.
+    case 'VOID_INVOICE': {
+      const inv = state.invoices.find((i) => i.id === action.id)
+      const products = inv
+        ? state.products.map((p) => {
+            const line = inv.items.find((it) => it.productId === p.id)
+            return line ? { ...p, quantity: p.quantity + Number(line.qty || 0) } : p
+          })
+        : state.products
+      return { ...state, invoices: state.invoices.filter((i) => i.id !== action.id), products }
+    }
+
     // Record a payment against an invoice: bumps amountPaid and re-derives status.
     case 'PAY_INVOICE': {
       const invoices = state.invoices.map((inv) => {

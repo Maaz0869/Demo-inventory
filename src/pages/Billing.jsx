@@ -8,6 +8,8 @@ import {
   ReceiptText,
   X,
   HandCoins,
+  Pencil,
+  Ban,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { formatMoney, formatDate, todayISO } from '../utils/format'
@@ -19,23 +21,43 @@ import {
   invoiceBalance,
 } from '../utils/calc'
 import { generateInvoicePDF } from '../utils/pdf'
-import { Modal, PageHeader, StatusBadge, EmptyState } from '../components/ui'
+import { Modal, PageHeader, StatusBadge, EmptyState, ConfirmDialog } from '../components/ui'
 import { nextId } from '../data/mockData'
 
 // ---------------------------------------------------------------------------
 // New-invoice builder
 // ---------------------------------------------------------------------------
-function InvoiceBuilder({ onClose }) {
+function InvoiceBuilder({ onClose, editInvoice }) {
   const { state, dispatch, currency } = useApp()
   const { products, customers, invoices } = state
+  const isEdit = !!editInvoice
 
-  const [customerId, setCustomerId] = useState(customers[0]?.id || '')
-  const [date, setDate] = useState(todayISO())
-  const [salesperson, setSalesperson] = useState('')
-  const [items, setItems] = useState([]) // { productId, name, qty, price, stock }
-  const [discount, setDiscount] = useState(0)
-  const [taxPercent, setTaxPercent] = useState(0)
-  const [status, setStatus] = useState('Paid')
+  // In edit mode, "available stock" for a line = current stock + what this line
+  // already holds (since it would be restored on save).
+  const initialItems = isEdit
+    ? editInvoice.items.map((it) => {
+        const p = products.find((pp) => pp.id === it.productId)
+        return {
+          productId: it.productId,
+          name: it.name,
+          qty: Number(it.qty),
+          price: Number(it.price),
+          prices: p
+            ? { actual: p.sellingPrice, medium: p.priceMedium ?? p.sellingPrice, high: p.priceHigh ?? p.sellingPrice }
+            : { actual: Number(it.price), medium: Number(it.price), high: Number(it.price) },
+          tier: 'actual',
+          stock: (p ? p.quantity : 0) + Number(it.qty),
+        }
+      })
+    : []
+
+  const [customerId, setCustomerId] = useState(editInvoice?.customerId || customers[0]?.id || '')
+  const [date, setDate] = useState(editInvoice?.date || todayISO())
+  const [salesperson, setSalesperson] = useState(editInvoice?.salesperson || '')
+  const [items, setItems] = useState(initialItems)
+  const [discount, setDiscount] = useState(editInvoice?.discount || 0)
+  const [taxPercent, setTaxPercent] = useState(editInvoice?.taxPercent || 0)
+  const [status, setStatus] = useState(editInvoice?.status || 'Paid')
   const [productSearch, setProductSearch] = useState('')
 
   // Suggest previously-used salesperson names.
@@ -94,10 +116,18 @@ function InvoiceBuilder({ onClose }) {
 
   const save = () => {
     if (!canSave) return
-    // Amount paid depends on chosen status.
-    const amountPaid = status === 'Paid' ? total : status === 'Partial' ? total / 2 : 0
+    // Amount paid depends on chosen status. On edit, keep any existing payment.
+    const amountPaid = isEdit
+      ? status === 'Paid'
+        ? total
+        : Math.min(Number(editInvoice.amountPaid) || 0, total)
+      : status === 'Paid'
+        ? total
+        : status === 'Partial'
+          ? total / 2
+          : 0
     const invoice = {
-      id: nextId('INV'),
+      id: isEdit ? editInvoice.id : nextId('INV'),
       customerId,
       date,
       salesperson: salesperson.trim(),
@@ -112,8 +142,9 @@ function InvoiceBuilder({ onClose }) {
       status,
       amountPaid: Math.round(amountPaid),
     }
-    dispatch({ type: 'ADD_INVOICE', invoice })
-    onClose(invoice)
+    if (isEdit) dispatch({ type: 'UPDATE_INVOICE', invoice, prev: editInvoice })
+    else dispatch({ type: 'ADD_INVOICE', invoice })
+    onClose(isEdit ? null : invoice) // auto-download PDF only for new invoices
   }
 
   return (
@@ -328,7 +359,7 @@ function InvoiceBuilder({ onClose }) {
           Cancel
         </button>
         <button onClick={save} disabled={!canSave} className="btn-primary">
-          <ReceiptText size={16} /> Create Invoice
+          <ReceiptText size={16} /> {isEdit ? 'Save Changes' : 'Create Invoice'}
         </button>
       </div>
     </div>
@@ -402,10 +433,12 @@ function PaymentModal({ invoice, onClose }) {
 // Billing page
 // ---------------------------------------------------------------------------
 export default function Billing() {
-  const { state, currency, companyName, settings } = useApp()
+  const { state, dispatch, currency, companyName, settings } = useApp()
   const { invoices, customers } = state
 
   const [showBuilder, setShowBuilder] = useState(false)
+  const [editInv, setEditInv] = useState(null)
+  const [voidInv, setVoidInv] = useState(null)
   const [payFor, setPayFor] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -514,6 +547,20 @@ export default function Billing() {
                         >
                           <FileDown size={16} />
                         </button>
+                        <button
+                          onClick={() => setEditInv(inv)}
+                          className="btn-ghost !p-2"
+                          title="Edit invoice"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => setVoidInv(inv)}
+                          className="btn-ghost !p-2 text-brand-600"
+                          title="Void / cancel invoice"
+                        >
+                          <Ban size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -527,12 +574,22 @@ export default function Billing() {
         )}
       </div>
 
-      {/* New invoice modal */}
-      <Modal open={showBuilder} onClose={() => setShowBuilder(false)} title="New Invoice" size="xl">
-        {showBuilder && (
+      {/* New / edit invoice modal */}
+      <Modal
+        open={showBuilder || !!editInv}
+        onClose={() => {
+          setShowBuilder(false)
+          setEditInv(null)
+        }}
+        title={editInv ? `Edit Invoice ${editInv.id}` : 'New Invoice'}
+        size="xl"
+      >
+        {(showBuilder || editInv) && (
           <InvoiceBuilder
+            editInvoice={editInv}
             onClose={(inv) => {
               setShowBuilder(false)
+              setEditInv(null)
               // Offer immediate PDF download of the freshly created invoice.
               if (inv) generateInvoicePDF(inv, customerById(inv.customerId), currency, companyName, settings || {})
             }}
@@ -544,6 +601,20 @@ export default function Billing() {
       <Modal open={!!payFor} onClose={() => setPayFor(null)} title="Record Payment" size="sm">
         {payFor && <PaymentModal invoice={payFor} onClose={() => setPayFor(null)} />}
       </Modal>
+
+      {/* Void confirm */}
+      <ConfirmDialog
+        open={!!voidInv}
+        danger
+        title={`Void invoice ${voidInv?.id}?`}
+        message="The invoice will be removed and its items returned to stock. This cannot be undone."
+        confirmLabel="Void Invoice"
+        onCancel={() => setVoidInv(null)}
+        onConfirm={() => {
+          dispatch({ type: 'VOID_INVOICE', id: voidInv.id })
+          setVoidInv(null)
+        }}
+      />
     </div>
   )
 }
