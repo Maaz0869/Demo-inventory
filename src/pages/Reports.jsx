@@ -1,11 +1,14 @@
 // Reports: sales, expenses and receivables summaries with Excel export.
-import { useMemo } from 'react'
+// Filterable by date range; export each report separately or all in one file.
+import { useMemo, useState } from 'react'
 import {
   TrendingUp,
   Wallet,
   HandCoins,
   FileSpreadsheet,
   Package,
+  Download,
+  X,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { formatMoney } from '../utils/format'
@@ -14,6 +17,7 @@ import {
   exportSalesReport,
   exportExpenseReport,
   exportReceivablesReport,
+  exportAllReports,
 } from '../utils/excel'
 import { PageHeader } from '../components/ui'
 
@@ -49,7 +53,17 @@ function ReportCard({ icon: Icon, accent, title, subtitle, stats, onExport, chil
 
 export default function Reports() {
   const { state, currency } = useApp()
-  const { invoices, customers, expenses, products } = state
+  const { customers, products } = state
+
+  // Date-range filter (empty = all time). ISO strings compare lexically.
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const inRange = (d) => (!from || d >= from) && (!to || d <= to)
+  const range = { from, to }
+
+  const invoices = useMemo(() => state.invoices.filter((i) => inRange(i.date)), [state.invoices, from, to])
+  const expenses = useMemo(() => state.expenses.filter((e) => inRange(e.date)), [state.expenses, from, to])
+  const payments = useMemo(() => state.payments.filter((p) => inRange(p.date)), [state.payments, from, to])
 
   const salesStats = useMemo(() => {
     const total = invoices.reduce((s, i) => s + invoiceTotal(i), 0)
@@ -60,9 +74,12 @@ export default function Reports() {
   const expenseTotal = useMemo(() => expenses.reduce((s, e) => s + Number(e.amount), 0), [expenses])
   const receivables = useMemo(() => totalReceivables(invoices), [invoices])
   const debtors = useMemo(
-    () => customers.filter((c) => customerBalance(c.id, invoices, state.payments) > 0),
-    [customers, invoices, state.payments],
+    () => customers.filter((c) => customerBalance(c.id, invoices, payments) > 0),
+    [customers, invoices, payments],
   )
+
+  const downloadAll = () =>
+    exportAllReports({ invoices, customers, expenses, payments, products }, currency, range)
 
   const netProfit = salesStats.total - expenseTotal
 
@@ -81,7 +98,39 @@ export default function Reports() {
 
   return (
     <div>
-      <PageHeader title="Reports" subtitle="Business summaries & exports" />
+      <PageHeader title="Reports" subtitle="Business summaries & exports">
+        <button onClick={downloadAll} className="btn-primary">
+          <Download size={16} /> Download All (Excel)
+        </button>
+      </PageHeader>
+
+      {/* Date range filter */}
+      <div className="card mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
+        <div>
+          <label className="label">From</label>
+          <input type="date" className="input sm:!w-44" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">To</label>
+          <input type="date" className="input sm:!w-44" value={to} onChange={(e) => setTo(e.target.value)} />
+        </div>
+        {(from || to) && (
+          <button
+            onClick={() => {
+              setFrom('')
+              setTo('')
+            }}
+            className="btn-ghost !py-2"
+          >
+            <X size={15} /> Clear
+          </button>
+        )}
+        <p className="text-xs text-gray-400 sm:ml-auto sm:self-center">
+          {from || to
+            ? `Showing ${from || 'start'} → ${to || 'today'}`
+            : 'Showing all time — pick a range to filter'}
+        </p>
+      </div>
 
       {/* Headline KPIs */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -108,7 +157,7 @@ export default function Reports() {
             { label: 'Collected', value: formatMoney(salesStats.collected, currency) },
             { label: 'Outstanding', value: formatMoney(receivables, currency) },
           ]}
-          onExport={() => exportSalesReport(invoices, customers, currency)}
+          onExport={() => exportSalesReport(invoices, customers, currency, range)}
         >
           <p className="mb-2 text-xs font-semibold uppercase text-gray-400">Top Selling</p>
           <div className="space-y-1.5">
@@ -132,7 +181,7 @@ export default function Reports() {
             { label: 'Entries', value: expenses.length },
             { label: 'Total', value: formatMoney(expenseTotal, currency) },
           ]}
-          onExport={() => exportExpenseReport(expenses, currency)}
+          onExport={() => exportExpenseReport(expenses, currency, range)}
         >
           <p className="mb-2 text-xs font-semibold uppercase text-gray-400">By Category</p>
           <div className="space-y-1.5">
@@ -164,13 +213,13 @@ export default function Reports() {
             { label: 'Debtors', value: debtors.length },
             { label: 'Total Due', value: formatMoney(receivables, currency) },
           ]}
-          onExport={() => exportReceivablesReport(customers, invoices, state.payments, currency)}
+          onExport={() => exportReceivablesReport(customers, invoices, payments, currency)}
         >
           <p className="mb-2 text-xs font-semibold uppercase text-gray-400">Top Debtors</p>
           <div className="space-y-1.5">
             {debtors.length === 0 && <p className="text-sm text-gray-400">No outstanding balances.</p>}
             {debtors
-              .map((c) => ({ c, bal: customerBalance(c.id, invoices, state.payments) }))
+              .map((c) => ({ c, bal: customerBalance(c.id, invoices, payments) }))
               .sort((a, b) => b.bal - a.bal)
               .slice(0, 5)
               .map(({ c, bal }) => (
