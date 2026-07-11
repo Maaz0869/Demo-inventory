@@ -1,5 +1,5 @@
 // Small reusable UI primitives shared across pages.
-import { X } from 'lucide-react'
+import { X, AlertTriangle } from 'lucide-react'
 import { useEffect } from 'react'
 
 /** Centered modal dialog with backdrop. */
@@ -27,6 +27,48 @@ export function Modal({ open, onClose, title, children, size = 'md' }) {
           </button>
         </div>
         {children}
+      </div>
+    </div>
+  )
+}
+
+/** Confirmation dialog. Pass `open` as the payload (truthy = shown). */
+export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', danger, onConfirm, onCancel }) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => e.key === 'Escape' && onCancel()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onCancel])
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+      <div className="card relative z-10 w-full max-w-sm p-6 animate-[fadeIn_.15s_ease-out]">
+        <div className="flex items-start gap-3">
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+              danger
+                ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300'
+                : 'bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300'
+            }`}
+          >
+            <AlertTriangle size={20} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-bold text-gray-900 dark:text-white">{title}</h3>
+            {message && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{message}</p>}
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onCancel} className="btn-secondary">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className={danger ? 'btn-danger' : 'btn-primary'}>
+            {confirmLabel}
+          </button>
+        </div>
       </div>
     </div>
   )
