@@ -238,8 +238,8 @@ export function AppProvider({ children }) {
     }
   }
 
-  // Currency (PKR / SAR) — persisted so a reload keeps the shop's choice.
-  const [currency, setCurrency] = useState(() => localStorage.getItem('currency') || 'PKR')
+  // Currency — the app is used in South Africa, so this is always ZAR.
+  const [currency, setCurrency] = useState('ZAR')
   useEffect(() => {
     localStorage.setItem('currency', currency)
   }, [currency])

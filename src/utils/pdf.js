@@ -16,7 +16,7 @@ const SHOP = {
 
 // `shopName` is the company the invoice belongs to (each tenant brands its own
 // invoices). Falls back to the product name if not provided.
-export function generateInvoicePDF(invoice, customer, currency = 'PKR', shopName = 'AutoParts Pro') {
+export function generateInvoicePDF(invoice, customer, currency = 'ZAR', shopName = 'AutoParts Pro') {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const marginX = 40

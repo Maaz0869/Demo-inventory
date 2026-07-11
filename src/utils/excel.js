@@ -24,7 +24,7 @@ function download(sheets, fileName) {
 // ---------------------------------------------------------------------------
 // Customer statement — every invoice + payment with a running balance.
 // ---------------------------------------------------------------------------
-export function exportCustomerStatement(customer, invoices, payments, currency = 'PKR') {
+export function exportCustomerStatement(customer, invoices, payments, currency = 'ZAR') {
   const custInvoices = invoices.filter((i) => i.customerId === customer.id)
   const custPayments = payments.filter((p) => p.customerId === customer.id)
 
@@ -77,7 +77,7 @@ export function exportCustomerStatement(customer, invoices, payments, currency =
 // ---------------------------------------------------------------------------
 // Sales report
 // ---------------------------------------------------------------------------
-export function exportSalesReport(invoices, customers, currency = 'PKR') {
+export function exportSalesReport(invoices, customers, currency = 'ZAR') {
   const nameOf = (id) => customers.find((c) => c.id === id)?.name || '—'
   const rows = invoices
     .slice()
@@ -100,7 +100,7 @@ export function exportSalesReport(invoices, customers, currency = 'PKR') {
 // ---------------------------------------------------------------------------
 // Expense report
 // ---------------------------------------------------------------------------
-export function exportExpenseReport(expenses, currency = 'PKR') {
+export function exportExpenseReport(expenses, currency = 'ZAR') {
   const rows = expenses
     .slice()
     .sort((a, b) => new Date(b.date) - new Date(a.date))
@@ -119,7 +119,7 @@ export function exportExpenseReport(expenses, currency = 'PKR') {
 // ---------------------------------------------------------------------------
 // Receivables report — outstanding per customer.
 // ---------------------------------------------------------------------------
-export function exportReceivablesReport(customers, invoices, payments, currency = 'PKR') {
+export function exportReceivablesReport(customers, invoices, payments, currency = 'ZAR') {
   const rows = customers
     .map((c) => ({
       Customer: c.name,
@@ -137,7 +137,7 @@ export function exportReceivablesReport(customers, invoices, payments, currency 
 // ---------------------------------------------------------------------------
 // Inventory export
 // ---------------------------------------------------------------------------
-export function exportInventory(products, currency = 'PKR') {
+export function exportInventory(products, currency = 'ZAR') {
   const rows = products.map((p) => ({
     'Part Name': p.name,
     'Part Number': p.partNumber,

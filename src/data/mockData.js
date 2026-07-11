@@ -136,6 +136,5 @@ export const seedExpenses = [
 ]
 
 export const CURRENCIES = [
-  { code: 'PKR', label: 'PKR — Pakistani Rupee', symbol: 'Rs' },
-  { code: 'SAR', label: 'SAR — Saudi Riyal', symbol: 'SAR' },
+  { code: 'ZAR', label: 'ZAR — South African Rand', symbol: 'R' },
 ]

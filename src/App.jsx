@@ -13,7 +13,6 @@ import Overview from './pages/Overview'
 import Login from './pages/Login'
 import { useApp } from './context/AppContext'
 import { useAuth } from './context/AuthContext'
-import { CURRENCIES } from './data/mockData'
 
 const PAGES = {
   dashboard: Dashboard,
@@ -29,7 +28,7 @@ const PAGES = {
 export default function App() {
   const [active, setActive] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { theme, toggleTheme, currency, setCurrency, loading, error } = useApp()
+  const { theme, toggleTheme, currency, loading, error } = useApp()
   const { currentUser, isAdmin, logout, viewingCompany, setViewingCompany, authLoading } = useAuth()
 
   // Restoring an existing session → brief splash (avoids flashing the login).
@@ -90,19 +89,13 @@ export default function App() {
           </button>
 
           <div className="flex flex-1 items-center justify-end gap-2 sm:gap-3">
-            {/* Currency selector */}
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="input !w-auto !py-1.5 text-sm font-semibold"
-              title="Currency"
+            {/* Currency (fixed to South African Rand) */}
+            <span
+              className="rounded-lg bg-gray-100 px-2.5 py-1.5 text-sm font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+              title="Currency: South African Rand"
             >
-              {CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.code}
-                </option>
-              ))}
-            </select>
+              R {currency}
+            </span>
 
             {/* Theme toggle */}
             <button
